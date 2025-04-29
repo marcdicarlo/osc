@@ -48,6 +48,23 @@ func MigrateSchema(ctx context.Context, db *sql.DB, cfg *config.Config) error {
 			project_id  TEXT NOT NULL,
 			FOREIGN KEY(project_id) REFERENCES ` + cfg.Tables.Projects + `(project_id) ON DELETE CASCADE
 		)`,
+		`CREATE TABLE IF NOT EXISTS ` + cfg.Tables.SecGrps + ` (
+			secgrp_id   TEXT PRIMARY KEY,
+			secgrp_name TEXT NOT NULL,
+			project_id  TEXT NOT NULL,
+			FOREIGN KEY(project_id) REFERENCES ` + cfg.Tables.Projects + `(project_id) ON DELETE CASCADE
+		)`,
+		`CREATE TABLE IF NOT EXISTS ` + cfg.Tables.SecGrpRules + ` (
+			rule_id          TEXT PRIMARY KEY,
+			secgrp_id       TEXT NOT NULL,
+			direction       TEXT NOT NULL,
+			ethertype       TEXT NOT NULL,
+			protocol        TEXT,
+			port_range_min  INTEGER,
+			port_range_max  INTEGER,
+			remote_ip_prefix TEXT,
+			FOREIGN KEY(secgrp_id) REFERENCES ` + cfg.Tables.SecGrps + `(secgrp_id) ON DELETE CASCADE
+		)`,
 	}
 	for _, s := range stmts {
 		if _, err := db.ExecContext(ctx, s); err != nil {
