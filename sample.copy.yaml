@@ -1,0 +1,13 @@
+db_file: "cachedb.db"
+db_timeout: 5000000000    # 5s in nanoseconds
+tables:
+  projects_table: "os_project_names"
+  servers_table:  "os_servers"
+  secgrps_table: "os_security_groups"
+  secgrp_rules_table: "os_security_group_rules"
+openstack:
+  compute_service:  "compute"
+  identity_service: "identity"
+  all_tenants:      true
+project_scope: "all"
+project_filter: ""
