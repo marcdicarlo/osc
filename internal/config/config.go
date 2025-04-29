@@ -9,8 +9,8 @@ import (
 
 // Config holds the configuration for the application
 type Config struct {
-	ProjectScope string `yaml:"project_scope"`
-	ProjectFilter string `yaml:"project_filter"`
+	ProjectScope  string        `yaml:"project_scope"`
+	ProjectFilter string        `yaml:"project_filter"`
 	DBFile        string        `yaml:"db_file"`
 	DBTimeout     time.Duration `yaml:"db_timeout"`
 	Tables        struct {
@@ -27,11 +27,18 @@ type Config struct {
 }
 
 // Load loads the configuration from the given file
+// It first checks in the current directory, then in /etc/osc/config.yaml
 func Load(file string) (*Config, error) {
+	// Try current directory first
 	data, err := os.ReadFile(file)
 	if err != nil {
-		return nil, err
+		// If not found in current directory, try /etc/osc/config.yaml
+		data, err = os.ReadFile("/etc/osc/config.yaml")
+		if err != nil {
+			return nil, err
+		}
 	}
+
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, err

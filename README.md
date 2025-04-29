@@ -129,6 +129,12 @@ CREATE TABLE os_security_group_rules (
 );
 ```
 
+## load dummy data
+
+```sh
+sqlite3 cachedb.db < setup.sql
+```
+
 ## Contributing
 
 1. Fork the repository
