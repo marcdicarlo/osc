@@ -75,10 +75,28 @@ func SyncAll(sqlDB *sql.DB, cfg *config.Config) error {
 
 	// Insert in transaction
 	log.Println("Starting database transaction")
-	tx, err := sqlDB.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
+
+	// Check if database is still responsive
+	if err := sqlDB.PingContext(ctx); err != nil {
+		return fmt.Errorf("database not responsive before transaction: %w", err)
 	}
+	log.Println("Database connection confirmed")
+
+	// Verify foreign keys are enabled
+	var fkEnabled int
+	if err := sqlDB.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&fkEnabled); err != nil {
+		return fmt.Errorf("failed to check foreign_keys pragma: %w", err)
+	}
+	log.Printf("Foreign keys enabled: %v", fkEnabled == 1)
+
+	tx, err := sqlDB.BeginTx(ctx, &sql.TxOptions{
+		Isolation: sql.LevelReadCommitted,
+		ReadOnly:  false,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction (timeout: %v): %w", cfg.DBTimeout, err)
+	}
+	log.Println("Transaction successfully started")
 	defer func() {
 		if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
 			log.Printf("Warning: failed to rollback transaction: %v", err)
