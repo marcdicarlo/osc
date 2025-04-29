@@ -79,8 +79,13 @@ func SyncAll(sqlDB *sql.DB, cfg *config.Config) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
+			log.Printf("Warning: failed to rollback transaction: %v", err)
+		}
+	}()
 
+	log.Println("Preparing project statement")
 	stmtPrj, err := tx.PrepareContext(ctx,
 		"INSERT INTO "+cfg.Tables.Projects+"(project_id, project_name) VALUES(?, ?)")
 	if err != nil {
@@ -88,6 +93,7 @@ func SyncAll(sqlDB *sql.DB, cfg *config.Config) error {
 	}
 	defer stmtPrj.Close()
 
+	log.Println("Preparing server statement")
 	stmtSrv, err := tx.PrepareContext(ctx,
 		"INSERT INTO "+cfg.Tables.Servers+"(server_id, server_name, project_id) VALUES(?, ?, ?)")
 	if err != nil {
@@ -95,20 +101,33 @@ func SyncAll(sqlDB *sql.DB, cfg *config.Config) error {
 	}
 	defer stmtSrv.Close()
 
-	log.Println("Inserting projects")
-	for _, p := range prjList {
+	log.Printf("Starting to insert %d projects", len(prjList))
+	for i, p := range prjList {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("context cancelled during project insertion: %w", err)
+		}
 		if _, err := stmtPrj.ExecContext(ctx, p.ID, p.Name); err != nil {
-			return fmt.Errorf("failed to insert project %s (%s): %w", p.Name, p.ID, err)
+			return fmt.Errorf("failed to insert project %s (%s) at index %d: %w", p.Name, p.ID, i, err)
+		}
+		if (i+1)%100 == 0 {
+			log.Printf("Inserted %d/%d projects", i+1, len(prjList))
 		}
 	}
 
-	log.Println("Inserting servers")
-	for _, s := range srvList {
+	log.Printf("Starting to insert %d servers", len(srvList))
+	for i, s := range srvList {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("context cancelled during server insertion: %w", err)
+		}
 		if _, err := stmtSrv.ExecContext(ctx, s.ID, s.Name, s.TenantID); err != nil {
-			return fmt.Errorf("failed to insert server %s (%s): %w", s.Name, s.ID, err)
+			return fmt.Errorf("failed to insert server %s (%s) at index %d: %w", s.Name, s.ID, i, err)
+		}
+		if (i+1)%100 == 0 {
+			log.Printf("Inserted %d/%d servers", i+1, len(srvList))
 		}
 	}
 
+	log.Println("Committing transaction")
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
