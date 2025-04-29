@@ -49,6 +49,10 @@ func SyncAll(sqlDB *sql.DB, cfg *config.Config) error {
 	if err != nil {
 		return fmt.Errorf("failed to create identity client: %w", err)
 	}
+	networkClient, err := clientconfig.NewServiceClient("network", opts)
+	if err != nil {
+		return fmt.Errorf("failed to create network client: %w", err)
+	}
 
 	// Fetch servers
 	log.Printf("Fetching servers (AllTenants: %v)", cfg.OpenStack.AllTenants)
@@ -82,7 +86,7 @@ func SyncAll(sqlDB *sql.DB, cfg *config.Config) error {
 
 	log.Println("Fetching security groups for all projects")
 	for _, p := range prjList {
-		sgPager, err := groups.List(computeClient, groups.ListOpts{TenantID: p.ID}).AllPages()
+		sgPager, err := groups.List(networkClient, groups.ListOpts{TenantID: p.ID}).AllPages()
 		if err != nil {
 			return fmt.Errorf("failed to list security groups for project %s: %w", p.ID, err)
 		}
