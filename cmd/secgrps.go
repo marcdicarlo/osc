@@ -67,10 +67,10 @@ func init() {
 func Secgrps(db *sql.DB, cfg *config.Config) error {
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.DBTimeout)
 	defer cancel()
-	query := `SELECT s.security_group_name, s.security_group_id, s.project_id, p.project_name
+	query := `SELECT s.secgrp_name, s.secgrp_id, s.project_id, p.project_name
 	FROM ` + cfg.Tables.SecGrps + ` s
 	JOIN ` + cfg.Tables.Projects + ` p USING (project_id)
-	ORDER BY s.security_group_name;`
+	ORDER BY s.secgrp_name;`
 	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return err
@@ -137,9 +137,15 @@ func Secgrps(db *sql.DB, cfg *config.Config) error {
 	if rules && len(filteredData) > 0 {
 		fmt.Println("\nSecurity Group Rules:")
 		for sgID, sgName := range secGroups {
-			rulesQuery := `SELECT direction, protocol, port_range, cidr
+			rulesQuery := `SELECT direction, protocol, 
+				CASE 
+					WHEN port_range_min IS NULL AND port_range_max IS NULL THEN 'any'
+					WHEN port_range_min = port_range_max THEN CAST(port_range_min AS TEXT)
+					ELSE CAST(port_range_min AS TEXT) || '-' || CAST(port_range_max AS TEXT)
+				END as port_range,
+				remote_ip_prefix as cidr
 			FROM ` + cfg.Tables.SecGrpRules + `
-			WHERE security_group_id = ?
+			WHERE secgrp_id = ?
 			ORDER BY direction, protocol;`
 
 			ruleRows, err := db.QueryContext(ctx, rulesQuery, sgID)
