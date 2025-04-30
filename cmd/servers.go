@@ -79,20 +79,11 @@ func Servers(db *sql.DB, cfg *config.Config) error {
 	// Initialize table
 	table := tablewriter.NewWriter(os.Stdout)
 	table.SetHeader([]string{"Server Name", "Server ID", "Project Name", "IPv4 Address"})
-
-	// table := tablewriter.NewWriter(os.Stdout)
-	// table.SetHeader([]string{"Server Name", "Server ID", "Project ID", "Project Name", "IPv4 Address"})
-	// table.SetAutoWrapText(false)
-	// table.SetAutoFormatHeaders(true)
-	// table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
-	// table.SetAlignment(tablewriter.ALIGN_LEFT)
-	// table.SetCenterSeparator("")
-	// table.SetColumnSeparator("")
-	// table.SetRowSeparator("")
-	// table.SetHeaderLine(false)
-	// table.SetBorder(false)
-	// table.SetTablePadding("\t")
-	// table.SetNoWhiteSpace(true)
+	table.SetAutoWrapText(false)
+	table.SetAutoFormatHeaders(true)
+	table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
+	table.SetAlignment(tablewriter.ALIGN_LEFT)
+	table.SetTablePadding("\t")
 
 	var data [][]string
 	for rows.Next() {

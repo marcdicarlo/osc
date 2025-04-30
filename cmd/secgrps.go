@@ -80,17 +80,11 @@ func Secgrps(db *sql.DB, cfg *config.Config) error {
 	// Initialize table
 	table := tablewriter.NewWriter(os.Stdout)
 	table.SetHeader([]string{"Security Group Name", "Security Group ID", "Project ID", "Project Name"})
-	// table.SetAutoWrapText(false)
-	// table.SetAutoFormatHeaders(true)
-	// table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
-	// table.SetAlignment(tablewriter.ALIGN_LEFT)
-	// table.SetCenterSeparator("")
-	// table.SetColumnSeparator("")
-	// table.SetRowSeparator("")
-	// table.SetHeaderLine(false)
-	// table.SetBorder(false)
-	// table.SetTablePadding("\t")
-	// table.SetNoWhiteSpace(true)
+	table.SetAutoWrapText(false)
+	table.SetAutoFormatHeaders(true)
+	table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
+	table.SetAlignment(tablewriter.ALIGN_LEFT)
+	table.SetTablePadding("\t")
 
 	var data [][]string
 	var secGroups = make(map[string]string) // map[security_group_id]security_group_name
@@ -152,7 +146,6 @@ func Secgrps(db *sql.DB, cfg *config.Config) error {
 			if err != nil {
 				return fmt.Errorf("failed to fetch rules for security group %s: %v", sgID, err)
 			}
-			defer ruleRows.Close()
 
 			hasRules := false
 			fmt.Printf("\n%s (%s):\n", sgName, sgID)
@@ -169,24 +162,30 @@ func Secgrps(db *sql.DB, cfg *config.Config) error {
 			rulesTable.SetTablePadding("\t")
 			rulesTable.SetNoWhiteSpace(true)
 
-			for ruleRows.Next() {
-				hasRules = true
-				var direction, protocol, portRange, cidr string
-				if err := ruleRows.Scan(&direction, &protocol, &portRange, &cidr); err != nil {
-					return fmt.Errorf("failed to scan rule: %v", err)
+			// Use a cleanup function to ensure ruleRows is closed after we're done with it
+			func() {
+				defer ruleRows.Close()
+				for ruleRows.Next() {
+					hasRules = true
+					var direction, protocol, portRange, cidr string
+					if err := ruleRows.Scan(&direction, &protocol, &portRange, &cidr); err != nil {
+						log.Printf("failed to scan rule for security group %s: %v", sgID, err)
+						return
+					}
+
+					rulesTable.Append([]string{
+						direction,
+						protocol,
+						portRange,
+						cidr,
+					})
 				}
 
-				rulesTable.Append([]string{
-					direction,
-					protocol,
-					portRange,
-					cidr,
-				})
-			}
-
-			if err := ruleRows.Err(); err != nil {
-				return fmt.Errorf("error iterating rules: %v", err)
-			}
+				if err := ruleRows.Err(); err != nil {
+					log.Printf("error iterating rules for security group %s: %v", sgID, err)
+					return
+				}
+			}()
 
 			if !hasRules {
 				fmt.Println("No rules found")
