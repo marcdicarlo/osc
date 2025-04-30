@@ -24,12 +24,18 @@ func SyncAll(sqlDB *sql.DB, cfg *config.Config) error {
 	defer cancel()
 
 	// Drop existing tables
-	log.Printf("Dropping existing tables: %s, %s", cfg.Tables.Servers, cfg.Tables.Projects)
+	log.Printf("Dropping existing tables: %s, %s, %s, %s", cfg.Tables.Servers, cfg.Tables.Projects, cfg.Tables.SecGrps, cfg.Tables.SecGrpRules)
 	if _, err := sqlDB.ExecContext(ctx, "DROP TABLE IF EXISTS "+cfg.Tables.Servers); err != nil {
 		return fmt.Errorf("failed to drop servers table: %w", err)
 	}
 	if _, err := sqlDB.ExecContext(ctx, "DROP TABLE IF EXISTS "+cfg.Tables.Projects); err != nil {
 		return fmt.Errorf("failed to drop projects table: %w", err)
+	}
+	if _, err := sqlDB.ExecContext(ctx, "DROP TABLE IF EXISTS "+cfg.Tables.SecGrps); err != nil {
+		return fmt.Errorf("failed to drop security groups table: %w", err)
+	}
+	if _, err := sqlDB.ExecContext(ctx, "DROP TABLE IF EXISTS "+cfg.Tables.SecGrpRules); err != nil {
+		return fmt.Errorf("failed to drop security group rules table: %w", err)
 	}
 
 	// Recreate schema

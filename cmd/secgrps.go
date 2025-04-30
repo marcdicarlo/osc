@@ -80,17 +80,17 @@ func Secgrps(db *sql.DB, cfg *config.Config) error {
 	// Initialize table
 	table := tablewriter.NewWriter(os.Stdout)
 	table.SetHeader([]string{"Security Group Name", "Security Group ID", "Project ID", "Project Name"})
-	table.SetAutoWrapText(false)
-	table.SetAutoFormatHeaders(true)
-	table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
-	table.SetAlignment(tablewriter.ALIGN_LEFT)
-	table.SetCenterSeparator("")
-	table.SetColumnSeparator("")
-	table.SetRowSeparator("")
-	table.SetHeaderLine(false)
-	table.SetBorder(false)
-	table.SetTablePadding("\t")
-	table.SetNoWhiteSpace(true)
+	// table.SetAutoWrapText(false)
+	// table.SetAutoFormatHeaders(true)
+	// table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
+	// table.SetAlignment(tablewriter.ALIGN_LEFT)
+	// table.SetCenterSeparator("")
+	// table.SetColumnSeparator("")
+	// table.SetRowSeparator("")
+	// table.SetHeaderLine(false)
+	// table.SetBorder(false)
+	// table.SetTablePadding("\t")
+	// table.SetNoWhiteSpace(true)
 
 	var data [][]string
 	var secGroups = make(map[string]string) // map[security_group_id]security_group_name

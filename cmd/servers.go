@@ -66,7 +66,7 @@ func init() {
 func Servers(db *sql.DB, cfg *config.Config) error {
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.DBTimeout)
 	defer cancel()
-	query := `SELECT s.server_name, s.server_id, s.project_id, p.project_name, s.ipv4_addr
+	query := `SELECT s.server_name, s.server_id, p.project_name, s.ipv4_addr
 	FROM ` + cfg.Tables.Servers + ` s
 	JOIN ` + cfg.Tables.Projects + ` p USING (project_id)
 	ORDER BY s.server_name;`
@@ -78,26 +78,29 @@ func Servers(db *sql.DB, cfg *config.Config) error {
 
 	// Initialize table
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"Server Name", "Server ID", "Project ID", "Project Name", "IPv4 Address"})
-	table.SetAutoWrapText(false)
-	table.SetAutoFormatHeaders(true)
-	table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
-	table.SetAlignment(tablewriter.ALIGN_LEFT)
-	table.SetCenterSeparator("")
-	table.SetColumnSeparator("")
-	table.SetRowSeparator("")
-	table.SetHeaderLine(false)
-	table.SetBorder(false)
-	table.SetTablePadding("\t")
-	table.SetNoWhiteSpace(true)
+	table.SetHeader([]string{"Server Name", "Server ID", "Project Name", "IPv4 Address"})
+
+	// table := tablewriter.NewWriter(os.Stdout)
+	// table.SetHeader([]string{"Server Name", "Server ID", "Project ID", "Project Name", "IPv4 Address"})
+	// table.SetAutoWrapText(false)
+	// table.SetAutoFormatHeaders(true)
+	// table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
+	// table.SetAlignment(tablewriter.ALIGN_LEFT)
+	// table.SetCenterSeparator("")
+	// table.SetColumnSeparator("")
+	// table.SetRowSeparator("")
+	// table.SetHeaderLine(false)
+	// table.SetBorder(false)
+	// table.SetTablePadding("\t")
+	// table.SetNoWhiteSpace(true)
 
 	var data [][]string
 	for rows.Next() {
-		var name, id, pid, pname, ipv4 string
-		if err := rows.Scan(&name, &id, &pid, &pname, &ipv4); err != nil {
+		var name, id, pname, ipv4 string
+		if err := rows.Scan(&name, &id, &pname, &ipv4); err != nil {
 			return err
 		}
-		data = append(data, []string{name, id, pid, pname, ipv4})
+		data = append(data, []string{name, id, pname, ipv4})
 	}
 
 	if err := rows.Err(); err != nil {
@@ -106,7 +109,7 @@ func Servers(db *sql.DB, cfg *config.Config) error {
 
 	// Apply project filtering
 	pf := filter.New(projectFilter, cfg)
-	filteredData, matchedProjects := pf.MatchProjects(data, 3) // 3 is the index of project_name in our data
+	filteredData, matchedProjects := pf.MatchProjects(data, 2) // 2 is the index of project_name in our data
 
 	if pf.GetActiveFilter() != "" {
 		if len(matchedProjects) == 0 {
