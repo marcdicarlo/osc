@@ -66,7 +66,7 @@ func init() {
 func Servers(db *sql.DB, cfg *config.Config) error {
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.DBTimeout)
 	defer cancel()
-	query := `SELECT s.server_name, s.server_id, s.project_id, p.project_name
+	query := `SELECT s.server_name, s.server_id, s.project_id, p.project_name, s.ipv4_addr
 	FROM ` + cfg.Tables.Servers + ` s
 	JOIN ` + cfg.Tables.Projects + ` p USING (project_id)
 	ORDER BY s.server_name;`
@@ -78,7 +78,7 @@ func Servers(db *sql.DB, cfg *config.Config) error {
 
 	// Initialize table
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"Server Name", "Server ID", "Project ID", "Project Name"})
+	table.SetHeader([]string{"Server Name", "Server ID", "Project ID", "Project Name", "IPv4 Address"})
 	table.SetAutoWrapText(false)
 	table.SetAutoFormatHeaders(true)
 	table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
@@ -93,11 +93,11 @@ func Servers(db *sql.DB, cfg *config.Config) error {
 
 	var data [][]string
 	for rows.Next() {
-		var name, id, pid, pname string
-		if err := rows.Scan(&name, &id, &pid, &pname); err != nil {
+		var name, id, pid, pname, ipv4 string
+		if err := rows.Scan(&name, &id, &pid, &pname, &ipv4); err != nil {
 			return err
 		}
-		data = append(data, []string{name, id, pid, pname})
+		data = append(data, []string{name, id, pid, pname, ipv4})
 	}
 
 	if err := rows.Err(); err != nil {

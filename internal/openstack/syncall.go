@@ -148,7 +148,7 @@ func SyncAll(sqlDB *sql.DB, cfg *config.Config) error {
 
 	log.Println("Preparing server statement")
 	stmtSrv, err := tx.PrepareContext(ctx,
-		"INSERT INTO "+cfg.Tables.Servers+"(server_id, server_name, project_id) VALUES(?, ?, ?)")
+		"INSERT INTO "+cfg.Tables.Servers+"(server_id, server_name, project_id, ipv4_addr) VALUES(?, ?, ?, ?)")
 	if err != nil {
 		return fmt.Errorf("failed to prepare servers statement: %w", err)
 	}
@@ -188,7 +188,24 @@ func SyncAll(sqlDB *sql.DB, cfg *config.Config) error {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("context cancelled during server insertion: %w", err)
 		}
-		if _, err := stmtSrv.ExecContext(ctx, s.ID, s.Name, s.TenantID); err != nil {
+
+		// Get the first IPv4 address from the server's addresses
+		var ipv4Addr string
+		for _, addresses := range s.Addresses {
+			for _, addr := range addresses.([]interface{}) {
+				if address, ok := addr.(map[string]interface{}); ok {
+					if address["version"].(float64) == 4 {
+						ipv4Addr = address["addr"].(string)
+						break
+					}
+				}
+			}
+			if ipv4Addr != "" {
+				break
+			}
+		}
+
+		if _, err := stmtSrv.ExecContext(ctx, s.ID, s.Name, s.TenantID, ipv4Addr); err != nil {
 			return fmt.Errorf("failed to insert server %s (%s) at index %d: %w", s.Name, s.ID, i, err)
 		}
 		if (i+1)%100 == 0 {

@@ -1,4 +1,4 @@
-# OpenStack CLI Cache (osc)
+# OpenStack Cache (osc)
 
 A command-line tool that caches OpenStack resource data locally for improved query performance. This tool maintains a local SQLite database of OpenStack resources and provides fast querying capabilities.
 
@@ -32,7 +32,7 @@ Create a `config.yaml` file in the project directory:
 
 ```yaml
 db_file: "cachedb.db"
-db_timeout: 5000000000    # 5s in nanoseconds
+db_timeout: 60000000000    # 60 seconds
 tables:
   projects_table: "os_project_names"
   servers_table: "os_servers"

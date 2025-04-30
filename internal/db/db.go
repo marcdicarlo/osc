@@ -46,6 +46,7 @@ func MigrateSchema(ctx context.Context, db *sql.DB, cfg *config.Config) error {
 			server_id   TEXT PRIMARY KEY,
 			server_name TEXT NOT NULL,
 			project_id  TEXT NOT NULL,
+			ipv4_addr   TEXT,
 			FOREIGN KEY(project_id) REFERENCES ` + cfg.Tables.Projects + `(project_id) ON DELETE CASCADE
 		)`,
 		`CREATE TABLE IF NOT EXISTS ` + cfg.Tables.SecGrps + ` (
