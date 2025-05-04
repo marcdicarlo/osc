@@ -13,6 +13,7 @@ import (
 var (
 	// Used by multiple commands
 	projectFilter string
+	outputFormat  string
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -49,6 +50,9 @@ func init() {
 	// will be global for your application.
 
 	// rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.osc.yaml)")
+
+	// Add global output format flag
+	rootCmd.PersistentFlags().StringVarP(&outputFormat, "output", "o", "table", "Output format: table, json, or csv")
 
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.

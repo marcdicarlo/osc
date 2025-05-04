@@ -11,8 +11,7 @@ import (
 
 	"github.com/marcdicarlo/osc/internal/config"
 	"github.com/marcdicarlo/osc/internal/db"
-	"github.com/olekukonko/tablewriter"
-
+	"github.com/marcdicarlo/osc/internal/output"
 	"github.com/spf13/cobra"
 )
 
@@ -27,6 +26,11 @@ Examples:
 # list all openstack projects
 osc list projects
 
+# list projects in JSON format
+osc list projects -o json
+
+# list projects in CSV format
+osc list projects -o csv
 `,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Load configuration from YAML
@@ -34,14 +38,16 @@ osc list projects
 		if err != nil {
 			log.Fatalf("Failed to load config: %v", err)
 		}
-		// initalize the database
+		// initialize the database
 		db, err := db.InitDB(cfg)
 		if err != nil {
 			log.Fatalf("DB init failed: %v", err)
 		}
 		defer db.Close()
-		// Print the projects table
-		Print(db, cfg)
+		// Print the projects
+		if err := Print(db, cfg); err != nil {
+			log.Fatalf("Failed to print projects: %v", err)
+		}
 	},
 }
 
@@ -59,12 +65,12 @@ func init() {
 	// projectsCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
 
-// Print reads and outputs server/project data.
+// Print reads and outputs project data.
 func Print(db *sql.DB, cfg *config.Config) error {
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.DBTimeout)
 	defer cancel()
 
-	// query all project names and project ids from the database projects table
+	// Query all project names and project ids from the database projects table
 	query := `SELECT project_id, project_name FROM ` + cfg.Tables.Projects
 
 	rows, err := db.QueryContext(ctx, query)
@@ -73,23 +79,31 @@ func Print(db *sql.DB, cfg *config.Config) error {
 	}
 	defer rows.Close()
 
-	// Initialize table
-	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"Project ID", "Project Name"})
-	table.SetAutoWrapText(false)
-	table.SetAutoFormatHeaders(true)
-	table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
-	table.SetAlignment(tablewriter.ALIGN_LEFT)
-	table.SetTablePadding("\t")
-
+	// Collect the data
+	var data [][]string
 	for rows.Next() {
 		var pid, pname string
 		if err := rows.Scan(&pid, &pname); err != nil {
 			return err
 		}
-		table.Append([]string{pid, pname})
+		data = append(data, []string{pid, pname})
 	}
 
-	table.Render()
-	return rows.Err()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	// Create the output formatter
+	formatter, err := output.NewFormatter(outputFormat, os.Stdout)
+	if err != nil {
+		return err
+	}
+
+	// Format and output the data
+	outputData := output.NewOutputData(
+		[]string{"Project ID", "Project Name"},
+		data,
+	)
+
+	return formatter.Format(outputData)
 }

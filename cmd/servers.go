@@ -6,15 +6,13 @@ package cmd
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"log"
 	"os"
 
 	"github.com/marcdicarlo/osc/internal/config"
 	"github.com/marcdicarlo/osc/internal/db"
 	"github.com/marcdicarlo/osc/internal/filter"
-	"github.com/olekukonko/tablewriter"
-
+	"github.com/marcdicarlo/osc/internal/output"
 	"github.com/spf13/cobra"
 )
 
@@ -32,6 +30,11 @@ osc list servers
 # list servers in projects containing a string
 osc list servers -p "prod"    # matches: prod-app1, prod-app2, production
 osc list servers -p "eta"     # matches: hc_zeta_project, hc_eta_project, hc_beta_project
+
+# list servers in different output formats
+osc list servers -o json
+osc list servers -o csv
+osc list servers -p "prod" -o json  # filtered output in JSON format
 `,
 	Run: func(cmd *cobra.Command, args []string) {
 		cfg, err := config.Load("config.yaml")
@@ -43,48 +46,35 @@ osc list servers -p "eta"     # matches: hc_zeta_project, hc_eta_project, hc_bet
 			log.Fatalf("Failed to init db: %v", err)
 		}
 		defer db.Close()
-		Servers(db, cfg)
+		if err := Servers(db, cfg); err != nil {
+			log.Fatalf("Failed to list servers: %v", err)
+		}
 	},
 }
 
 func init() {
 	listCmd.AddCommand(serversCmd)
 	serversCmd.Flags().StringVarP(&projectFilter, "project", "p", "", "Filter servers by project name (shows projects containing this string)")
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// serversCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// serversCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
 
 // Servers reads and outputs server/project data.
 func Servers(db *sql.DB, cfg *config.Config) error {
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.DBTimeout)
 	defer cancel()
+
+	// Query servers with project information
 	query := `SELECT s.server_name, s.server_id, p.project_name, s.ipv4_addr
 	FROM ` + cfg.Tables.Servers + ` s
 	JOIN ` + cfg.Tables.Projects + ` p USING (project_id)
 	ORDER BY s.server_name;`
+
 	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 
-	// Initialize table
-	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"Server Name", "Server ID", "Project Name", "IPv4 Address"})
-	table.SetAutoWrapText(false)
-	table.SetAutoFormatHeaders(true)
-	table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
-	table.SetAlignment(tablewriter.ALIGN_LEFT)
-	table.SetTablePadding("\t")
-
+	// Collect the data
 	var data [][]string
 	for rows.Next() {
 		var name, id, pname, ipv4 string
@@ -100,21 +90,29 @@ func Servers(db *sql.DB, cfg *config.Config) error {
 
 	// Apply project filtering
 	pf := filter.New(projectFilter, cfg)
-	filteredData, matchedProjects := pf.MatchProjects(data, 2) // 2 is the index of project_name in our data
+	filteredData, matchedProjectsMap := pf.MatchProjects(data, 2) // 2 is the index of project_name in our data
 
+	// Create the output formatter
+	formatter, err := output.NewFormatter(outputFormat, os.Stdout)
+	if err != nil {
+		return err
+	}
+
+	// Prepare output data with headers and filtering info
+	outputData := output.NewOutputData(
+		[]string{"Server Name", "Server ID", "Project Name", "IPv4 Address"},
+		filteredData,
+	)
+
+	// Add filtering metadata if filtering was applied
 	if pf.GetActiveFilter() != "" {
-		if len(matchedProjects) == 0 {
-			fmt.Print(pf.FormatMatchedProjects(matchedProjects, "servers"))
-			return nil
+		// Convert matched projects map to slice
+		var matchedProjects []string
+		for project := range matchedProjectsMap {
+			matchedProjects = append(matchedProjects, project)
 		}
-		fmt.Print(pf.FormatMatchedProjects(matchedProjects, "servers"))
-		fmt.Println()
+		outputData.WithFilterInfo(matchedProjects)
 	}
 
-	for _, row := range filteredData {
-		table.Append(row)
-	}
-
-	table.Render()
-	return nil
+	return formatter.Format(outputData)
 }
