@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 )
 
 // JSONFormatter implements the Formatter interface for JSON output
@@ -27,10 +28,10 @@ type JSONRow struct {
 
 // JSONRuleFields contains security group rule specific fields
 type JSONRuleFields struct {
-	Direction string `json:"direction"`
-	Protocol  string `json:"protocol"`
-	PortRange string `json:"port_range"`
-	RemoteIP  string `json:"remote_ip"`
+	Direction string `json:"direction,omitempty"`
+	Protocol  string `json:"protocol,omitempty"`
+	PortRange string `json:"port_range,omitempty"`
+	RemoteIP  string `json:"remote_ip,omitempty"`
 }
 
 // JSONMetadata contains metadata about the output
@@ -61,6 +62,14 @@ func NewJSONFormatter(w io.Writer) *JSONFormatter {
 
 // Format writes the data in JSON format
 func (f *JSONFormatter) Format(data *OutputData) error {
+	if data == nil {
+		return fmt.Errorf("nil output data provided")
+	}
+
+	if len(data.Headers) == 0 {
+		return fmt.Errorf("no headers provided")
+	}
+
 	output := JSONOutput{
 		Headers: data.Headers,
 		Data:    make([]JSONRow, 0, len(data.Rows)),
@@ -78,44 +87,78 @@ func (f *JSONFormatter) Format(data *OutputData) error {
 
 	// Convert rows to structured JSON format
 	hasRules := len(data.Headers) > 5 // Check if we have rule fields
-	for _, row := range data.Rows {
+	for rowIndex, row := range data.Rows {
+		if len(row) < len(data.Headers) {
+			log.Printf("Warning: Row %d has fewer fields (%d) than headers (%d)", rowIndex, len(row), len(data.Headers))
+			continue
+		}
+
 		jsonRow := JSONRow{
 			Fields: make(map[string]string),
 		}
 
-		// Add basic fields
-		for i := 0; i < 5; i++ { // First 5 fields are always present
-			jsonRow.Fields[data.Headers[i]] = row[i]
+		// Add basic fields with validation
+		for i := 0; i < len(data.Headers) && i < len(row); i++ {
+			if i < 5 { // Basic fields
+				if row[i] == "" {
+					// Use a placeholder for empty values
+					jsonRow.Fields[data.Headers[i]] = "n/a"
+				} else {
+					jsonRow.Fields[data.Headers[i]] = row[i]
+				}
+			}
 		}
 
-		// Set the type from the Resource Type field
-		jsonRow.Type = row[4] // Resource Type is always at index 4
+		// Set the type from the Resource Type field if available
+		if len(row) > 4 {
+			jsonRow.Type = row[4] // Resource Type is always at index 4
+		}
 
 		// Add rule fields if present
-		if hasRules && len(row) > 5 {
+		if hasRules && len(row) > 8 {
 			jsonRow.RuleFields = &JSONRuleFields{
-				Direction: row[5],
-				Protocol:  row[6],
-				PortRange: row[7],
-				RemoteIP:  row[8],
+				Direction: getValueOrDefault(row[5], "n/a"),
+				Protocol:  getValueOrDefault(row[6], "n/a"),
+				PortRange: getValueOrDefault(row[7], "n/a"),
+				RemoteIP:  getValueOrDefault(row[8], "n/a"),
 			}
 		}
 
 		output.Data = append(output.Data, jsonRow)
 	}
 
+	// Use a buffer to catch any encoding errors
 	encoder := json.NewEncoder(f.Writer)
-	encoder.SetIndent("", "  ") // Pretty print with 2 spaces
+	encoder.SetIndent("", "  ")  // Pretty print with 2 spaces
+	encoder.SetEscapeHTML(false) // Don't escape HTML characters in the output
+
 	if err := encoder.Encode(output); err != nil {
-		return fmt.Errorf("error encoding JSON: %v", err)
+		return fmt.Errorf("error encoding JSON (data size: %d rows): %v", len(data.Rows), err)
 	}
 
 	return nil
 }
 
+// getValueOrDefault returns the value if not empty, otherwise returns the default value
+func getValueOrDefault(value, defaultValue string) string {
+	if value == "" {
+		return defaultValue
+	}
+	return value
+}
+
 // FormatSecurityGroupRules formats security group rules in JSON format
 func (f *JSONFormatter) FormatSecurityGroupRules(groupName, groupID string, rules [][]string) error {
-	output := JSONSecurityGroupRules{
+	if groupName == "" || groupID == "" {
+		return fmt.Errorf("group name and ID cannot be empty")
+	}
+
+	output := struct {
+		GroupName string     `json:"group_name"`
+		GroupID   string     `json:"group_id"`
+		Headers   []string   `json:"headers"`
+		Rules     [][]string `json:"rules"`
+	}{
 		GroupName: groupName,
 		GroupID:   groupID,
 		Headers:   []string{"Direction", "Protocol", "Port Range", "CIDR"},
@@ -123,9 +166,11 @@ func (f *JSONFormatter) FormatSecurityGroupRules(groupName, groupID string, rule
 	}
 
 	encoder := json.NewEncoder(f.Writer)
-	encoder.SetIndent("", "  ") // Pretty print with 2 spaces
+	encoder.SetIndent("", "  ")  // Pretty print with 2 spaces
+	encoder.SetEscapeHTML(false) // Don't escape HTML characters in the output
+
 	if err := encoder.Encode(output); err != nil {
-		return fmt.Errorf("error encoding JSON: %v", err)
+		return fmt.Errorf("error encoding security group rules JSON: %v", err)
 	}
 
 	return nil
