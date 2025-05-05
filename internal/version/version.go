@@ -2,9 +2,9 @@ package version
 
 // Version information
 var (
-	Version = "0.1.2"
-	Commit  = "unknown"
-	Date    = "unknown"
+	Version = "0.2.1"
+	Commit = "3e76c5e"
+	Date = "2025-05-05 23:04:49 UTC"
 )
 
 // GetVersion returns the full version string

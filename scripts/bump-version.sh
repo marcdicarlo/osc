@@ -34,8 +34,10 @@ BUILD_DATE=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
 
 # Update version.go with new version
 sed -i "s/Version = \".*\"/Version = \"$NEW_VERSION\"/" internal/version/version.go
-sed -i "s/Commit = \".*\"/Commit = \"$COMMIT_HASH\"/" internal/version/version.go
-sed -i "s/Date = \".*\"/Date = \"$BUILD_DATE\"/" internal/version/version.go
+sed -i "s/Commit  = \".*\"/Commit = \"$COMMIT_HASH\"/" internal/version/version.go
+sed -i "s/Date    = \".*\"/Date = \"$BUILD_DATE\"/" internal/version/version.go
 
 # Print the new version
-echo "Bumped $VERSION_TYPE version to $NEW_VERSION" 
+echo "Bumped $VERSION_TYPE version to $NEW_VERSION"
+echo "Commit hash: $COMMIT_HASH"
+echo "Build date: $BUILD_DATE"
