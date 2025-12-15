@@ -9,5 +9,7 @@ openstack:
   compute_service:  "compute"
   identity_service: "identity"
   all_tenants:      true
+  max_workers:      10              # Maximum concurrent API workers for parallel fetching (default: 10)
+  worker_timeout:   30000000000     # Timeout per worker in nanoseconds (30s default)
 project_scope: "all"
 project_filter: ""
