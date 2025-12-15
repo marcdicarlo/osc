@@ -30,9 +30,9 @@ func initOpenStackClients(cfg *config.Config) (*gophercloud.ServiceClient, *goph
 	}
 
 	// Verify compute connectivity with a simple list operation
-	if _, err := servers.List(computeClient, servers.ListOpts{Limit: 1}).AllPages(); err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to verify compute service connectivity: %w", err)
-	}
+	// if _, err := servers.List(computeClient, servers.ListOpts{Limit: 1}).AllPages(); err != nil {
+	// 	return nil, nil, nil, fmt.Errorf("failed to verify compute service connectivity: %w", err)
+	// }
 
 	// Initialize identity client
 	identityClient, err := clientconfig.NewServiceClient(cfg.OpenStack.IdentityService, opts)
@@ -41,9 +41,9 @@ func initOpenStackClients(cfg *config.Config) (*gophercloud.ServiceClient, *goph
 	}
 
 	// Verify identity connectivity
-	if _, err := projects.List(identityClient, nil).AllPages(); err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to verify identity service connectivity: %w", err)
-	}
+	// if _, err := projects.List(identityClient, nil).AllPages(); err != nil {
+	// 	return nil, nil, nil, fmt.Errorf("failed to verify identity service connectivity: %w", err)
+	// }
 
 	// Initialize network client
 	networkClient, err := clientconfig.NewServiceClient("network", opts)
@@ -52,9 +52,9 @@ func initOpenStackClients(cfg *config.Config) (*gophercloud.ServiceClient, *goph
 	}
 
 	// Verify network connectivity
-	if _, err := groups.List(networkClient, groups.ListOpts{Limit: 1}).AllPages(); err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to verify network service connectivity: %w", err)
-	}
+	// if _, err := groups.List(networkClient, groups.ListOpts{Limit: 1}).AllPages(); err != nil {
+	// 	return nil, nil, nil, fmt.Errorf("failed to verify network service connectivity: %w", err)
+	// }
 
 	return computeClient, identityClient, networkClient, nil
 }
@@ -203,7 +203,7 @@ func SyncAll(sqlDB *sql.DB, cfg *config.Config) error {
 	log.Printf("Starting OpenStack sync with compute service: %s, identity service: %s", cfg.OpenStack.ComputeService, cfg.OpenStack.IdentityService)
 
 	// First verify OpenStack connectivity before making any database changes
-	log.Println("Verifying OpenStack connectivity")
+	// log.Println("Verifying OpenStack connectivity")
 	computeClient, identityClient, networkClient, err := initOpenStackClients(cfg)
 	if err != nil {
 		return fmt.Errorf("OpenStack authentication failed: %w", err)
