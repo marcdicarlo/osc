@@ -1,10 +1,10 @@
 package version
 
-// Version information
+// Version information - injected at build time via ldflags
 var (
-	Version = "0.2.5"
-	Commit = "3e76c5e"
-	Date = "2025-05-05 23:04:49 UTC"
+	Version = "dev"
+	Commit  = "unknown"
+	Date    = "unknown"
 )
 
 // GetVersion returns the full version string

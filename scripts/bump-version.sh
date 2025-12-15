@@ -2,14 +2,17 @@
 
 # Check if version type argument is provided
 if [ $# -ne 1 ]; then
-    echo "Usage: $0 [major|minor]"
+    echo "Usage: $0 [major|minor|patch]"
     exit 1
 fi
 
 VERSION_TYPE=$1
 
-# Get the current version from version.go
-CURRENT_VERSION=$(grep 'Version = ' internal/version/version.go | cut -d'"' -f2)
+# Get the current version from git tags
+CURRENT_VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "0.2.5")
+
+# Remove 'v' prefix if present
+CURRENT_VERSION=${CURRENT_VERSION#v}
 
 # Split version into major, minor, and patch
 IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
@@ -22,22 +25,28 @@ case $VERSION_TYPE in
     "minor")
         NEW_VERSION="$MAJOR.$((MINOR + 1)).0"
         ;;
+    "patch")
+        NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
+        ;;
     *)
-        echo "Invalid version type. Use 'major' or 'minor'"
+        echo "Invalid version type. Use 'major', 'minor', or 'patch'"
         exit 1
         ;;
 esac
 
-# Get current commit hash and date
-COMMIT_HASH=$(git rev-parse --short HEAD)
-BUILD_DATE=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+# Create git tag
+echo "Bumping $VERSION_TYPE version: $CURRENT_VERSION -> $NEW_VERSION"
+git tag -a "v$NEW_VERSION" -m "Release version $NEW_VERSION"
 
-# Update version.go with new version
-sed -i "s/Version = \".*\"/Version = \"$NEW_VERSION\"/" internal/version/version.go
-sed -i "s/Commit  = \".*\"/Commit = \"$COMMIT_HASH\"/" internal/version/version.go
-sed -i "s/Date    = \".*\"/Date = \"$BUILD_DATE\"/" internal/version/version.go
-
-# Print the new version
-echo "Bumped $VERSION_TYPE version to $NEW_VERSION"
-echo "Commit hash: $COMMIT_HASH"
-echo "Build date: $BUILD_DATE"
+if [ $? -eq 0 ]; then
+    echo "Created tag v$NEW_VERSION"
+    echo ""
+    echo "To push the tag to remote, run:"
+    echo "  git push origin v$NEW_VERSION"
+    echo ""
+    echo "To build with this version, run:"
+    echo "  ./scripts/build.sh"
+else
+    echo "Failed to create tag"
+    exit 1
+fi
