@@ -1,3 +1,6 @@
 *.db*
 config.yaml
 TASKS.md
+CLAUDE.md
+memorybank.md
+osc

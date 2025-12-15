@@ -23,6 +23,8 @@ type Config struct {
 		ComputeService  string `yaml:"compute_service"`
 		IdentityService string `yaml:"identity_service"`
 		AllTenants      bool   `yaml:"all_tenants"`
+		MaxWorkers      int    `yaml:"max_workers"`       // Maximum concurrent workers for API calls (default: 10)
+		WorkerTimeout   time.Duration `yaml:"worker_timeout"` // Timeout for individual worker API calls (default: 30s)
 	} `yaml:"openstack"`
 }
 
@@ -43,5 +45,22 @@ func Load(file string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
+
+	// Apply defaults for concurrency settings
+	cfg.applyDefaults()
+
 	return &cfg, nil
+}
+
+// applyDefaults sets default values for optional configuration fields
+func (c *Config) applyDefaults() {
+	// Default to 10 concurrent workers if not specified
+	if c.OpenStack.MaxWorkers <= 0 {
+		c.OpenStack.MaxWorkers = 10
+	}
+
+	// Default to 30 second timeout per worker if not specified
+	if c.OpenStack.WorkerTimeout == 0 {
+		c.OpenStack.WorkerTimeout = 30 * time.Second
+	}
 }

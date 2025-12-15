@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"sync"
+	"time"
 
 	"github.com/marcdicarlo/osc/internal/config"
 
@@ -14,6 +16,7 @@ import (
 	"github.com/gophercloud/gophercloud/openstack/identity/v3/projects"
 	"github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/security/groups"
 	"github.com/gophercloud/utils/openstack/clientconfig"
+	"golang.org/x/sync/semaphore"
 )
 
 // initOpenStackClients initializes and verifies connectivity to all required OpenStack services
@@ -74,6 +77,127 @@ func clearTables(ctx context.Context, tx *sql.Tx, cfg *config.Config) error {
 	return nil
 }
 
+// securityGroupResult holds the result of fetching security groups for a single project
+type securityGroupResult struct {
+	ProjectID string
+	Groups    []groups.SecGroup
+	Error     error
+}
+
+// fetchSecurityGroupsParallel fetches security groups for all projects concurrently using a worker pool
+func fetchSecurityGroupsParallel(networkClient *gophercloud.ServiceClient, projectList []projects.Project, cfg *config.Config) ([]struct {
+	ProjectID string
+	Group     groups.SecGroup
+}, error) {
+	numProjects := len(projectList)
+	if numProjects == 0 {
+		return nil, nil
+	}
+
+	log.Printf("Fetching security groups for %d projects using %d workers", numProjects, cfg.OpenStack.MaxWorkers)
+
+	// Create a semaphore to limit concurrent workers
+	sem := semaphore.NewWeighted(int64(cfg.OpenStack.MaxWorkers))
+
+	// Channel to collect results
+	resultsChan := make(chan securityGroupResult, numProjects)
+
+	// WaitGroup to track all goroutines
+	var wg sync.WaitGroup
+
+	// Launch workers for each project
+	startTime := time.Now()
+	for _, p := range projectList {
+		wg.Add(1)
+		go func(project projects.Project) {
+			defer wg.Done()
+
+			// Acquire semaphore (blocks if max workers reached)
+			ctx, cancel := context.WithTimeout(context.Background(), cfg.OpenStack.WorkerTimeout)
+			defer cancel()
+
+			if err := sem.Acquire(ctx, 1); err != nil {
+				resultsChan <- securityGroupResult{
+					ProjectID: project.ID,
+					Error:     fmt.Errorf("failed to acquire semaphore: %w", err),
+				}
+				return
+			}
+			defer sem.Release(1)
+
+			// Fetch security groups for this project
+			sgPager, err := groups.List(networkClient, groups.ListOpts{TenantID: project.ID}).AllPages()
+			if err != nil {
+				resultsChan <- securityGroupResult{
+					ProjectID: project.ID,
+					Error:     fmt.Errorf("failed to list security groups: %w", err),
+				}
+				return
+			}
+
+			sgList, err := groups.ExtractGroups(sgPager)
+			if err != nil {
+				resultsChan <- securityGroupResult{
+					ProjectID: project.ID,
+					Error:     fmt.Errorf("failed to extract security groups: %w", err),
+				}
+				return
+			}
+
+			resultsChan <- securityGroupResult{
+				ProjectID: project.ID,
+				Groups:    sgList,
+				Error:     nil,
+			}
+		}(p)
+	}
+
+	// Close results channel when all workers are done
+	go func() {
+		wg.Wait()
+		close(resultsChan)
+	}()
+
+	// Collect results
+	var allSecurityGroups []struct {
+		ProjectID string
+		Group     groups.SecGroup
+	}
+	totalGroups := 0
+	processedProjects := 0
+
+	for result := range resultsChan {
+		processedProjects++
+
+		if result.Error != nil {
+			return nil, fmt.Errorf("failed to fetch security groups for project %s: %w", result.ProjectID, result.Error)
+		}
+
+		// Add all groups from this project to the collection
+		for _, sg := range result.Groups {
+			allSecurityGroups = append(allSecurityGroups, struct {
+				ProjectID string
+				Group     groups.SecGroup
+			}{
+				ProjectID: result.ProjectID,
+				Group:     sg,
+			})
+		}
+		totalGroups += len(result.Groups)
+
+		// Log progress every 10 projects
+		if processedProjects%10 == 0 {
+			log.Printf("Progress: %d/%d projects processed, %d security groups found so far", processedProjects, numProjects, totalGroups)
+		}
+	}
+
+	elapsed := time.Since(startTime)
+	log.Printf("Fetched security groups from %d projects in %v (%d total groups, %.2f projects/sec)",
+		numProjects, elapsed, totalGroups, float64(numProjects)/elapsed.Seconds())
+
+	return allSecurityGroups, nil
+}
+
 // Sync pulls data from OpenStack and populates SQLite.
 func SyncAll(sqlDB *sql.DB, cfg *config.Config) error {
 	log.Printf("Starting OpenStack sync with compute service: %s, identity service: %s", cfg.OpenStack.ComputeService, cfg.OpenStack.IdentityService)
@@ -132,33 +256,10 @@ func SyncAll(sqlDB *sql.DB, cfg *config.Config) error {
 	}
 	log.Printf("Found %d projects", len(prjList))
 
-	// Fetch security groups for all projects
-	var allSecurityGroups []struct {
-		ProjectID string
-		Group     groups.SecGroup
-	}
-
-	log.Println("Fetching security groups for all projects")
-	for _, p := range prjList {
-		sgPager, err := groups.List(networkClient, groups.ListOpts{TenantID: p.ID}).AllPages()
-		if err != nil {
-			return fmt.Errorf("failed to list security groups for project %s: %w", p.ID, err)
-		}
-		sgList, err := groups.ExtractGroups(sgPager)
-		if err != nil {
-			return fmt.Errorf("failed to extract security groups for project %s: %w", p.ID, err)
-		}
-		log.Printf("Found %d security groups for project %s", len(sgList), p.ID)
-
-		for _, sg := range sgList {
-			allSecurityGroups = append(allSecurityGroups, struct {
-				ProjectID string
-				Group     groups.SecGroup
-			}{
-				ProjectID: p.ID,
-				Group:     sg,
-			})
-		}
+	// Fetch security groups for all projects using parallel workers
+	allSecurityGroups, err := fetchSecurityGroupsParallel(networkClient, prjList, cfg)
+	if err != nil {
+		return fmt.Errorf("failed to fetch security groups: %w", err)
 	}
 	log.Printf("Total security groups found: %d", len(allSecurityGroups))
 
