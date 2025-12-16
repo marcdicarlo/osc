@@ -6,6 +6,7 @@ package cmd
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log"
 	"os"
 
@@ -84,6 +85,14 @@ func init() {
 func Secgrps(db *sql.DB, cfg *config.Config) error {
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.DBTimeout)
 	defer cancel()
+
+	// Validate flag combinations
+	if fullOutput && !rules {
+		return fmt.Errorf("--full flag requires --rules flag")
+	}
+	if sortGrouped && !fullOutput {
+		return fmt.Errorf("--sort flag requires --full flag")
+	}
 
 	// Build the base query for security groups
 	var query string
@@ -221,9 +230,8 @@ func Secgrps(db *sql.DB, cfg *config.Config) error {
 				return err
 			}
 			row := []string{name, id, pid, pname, rtype}
-			if rules {
-				row = append(row, direction, protocol, portRange, remoteIP)
-			}
+			// Rule details are NEVER appended in basic rules mode (-r without --full)
+			// This mode only shows that rules exist (via resource_type), not their details
 			data = append(data, row)
 		}
 	}
@@ -246,9 +254,9 @@ func Secgrps(db *sql.DB, cfg *config.Config) error {
 	headers := []string{"Name", "ID", "Project ID", "Project Name", "Resource Type"}
 	if rules && fullOutput {
 		headers = append(headers, "Direction", "Protocol", "Port Range", "Remote IP", "Ethertype", "Remote Group")
-	} else if rules {
-		headers = append(headers, "Direction", "Protocol", "Port Range", "Remote IP")
 	}
+	// Note: When rules=true but fullOutput=false, we only use the base 5 headers
+	// Rule details are not shown in basic rules mode
 	outputData := output.NewOutputData(headers, filteredData)
 
 	// Add filtering metadata if filtering was applied
