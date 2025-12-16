@@ -19,6 +19,7 @@ import (
 // secgrpsCmd represents the secgrps command
 var (
 	rules      bool
+	fullOutput bool
 	secgrpsCmd = &cobra.Command{
 		Use:   "secgrps",
 		Short: "List all OpenStack security groups and rules",
@@ -35,9 +36,14 @@ osc list secgrps -p "prod"
 # list security groups and their rules
 osc list secgrps -r
 
+# list security groups with full rule details (ethertype, remote groups)
+osc list secgrps -r --full
+osc list secgrps -r -f
+
 # list security groups and rules in different formats
 osc list secgrps -r -o json
-osc list secgrps -r -o csv
+osc list secgrps -r --full -o json
+osc list secgrps -r -f -o csv
 osc list secgrps -p "prod" -r -o json
 `,
 		Run: func(cmd *cobra.Command, args []string) {
@@ -60,6 +66,7 @@ osc list secgrps -p "prod" -r -o json
 func init() {
 	listCmd.AddCommand(secgrpsCmd)
 	secgrpsCmd.Flags().BoolVarP(&rules, "rules", "r", false, "Show rules for each security group")
+	secgrpsCmd.Flags().BoolVarP(&fullOutput, "full", "f", false, "Show full rule details including ethertype and remote group IDs (requires -r)")
 	secgrpsCmd.Flags().StringVarP(&projectFilter, "project", "p", "", "Filter security groups by project name (shows projects containing this string)")
 }
 
@@ -69,24 +76,26 @@ func Secgrps(db *sql.DB, cfg *config.Config) error {
 	defer cancel()
 
 	// Build the base query for security groups
-	query := `SELECT 
-		s.secgrp_name as name,
-		s.secgrp_id as id,
-		s.project_id,
-		p.project_name,
-		'security-group' as resource_type,
-		'' as direction,
-		'' as protocol,
-		'' as port_range,
-		'' as remote_ip
-	FROM ` + cfg.Tables.SecGrps + ` s
-	JOIN ` + cfg.Tables.Projects + ` p USING (project_id)`
-
-	// If rules are requested, union with rules query
-	if rules {
-		query += `
+	var query string
+	if rules && fullOutput {
+		// Full output mode: include ethertype and remote_group_id with group name resolution
+		query = `SELECT
+			s.secgrp_name as name,
+			s.secgrp_id as id,
+			s.project_id,
+			p.project_name,
+			'security-group' as resource_type,
+			'' as direction,
+			'' as protocol,
+			'' as port_range,
+			'' as remote_ip,
+			'' as ethertype,
+			'' as remote_group_id,
+			'' as remote_group_name
+		FROM ` + cfg.Tables.SecGrps + ` s
+		JOIN ` + cfg.Tables.Projects + ` p USING (project_id)
 		UNION ALL
-		SELECT 
+		SELECT
 			r.rule_id as name,
 			r.secgrp_id as id,
 			s.project_id,
@@ -94,7 +103,44 @@ func Secgrps(db *sql.DB, cfg *config.Config) error {
 			'security-group-rule' as resource_type,
 			r.direction,
 			COALESCE(r.protocol, 'any') as protocol,
-			CASE 
+			CASE
+				WHEN r.port_range_min IS NULL AND r.port_range_max IS NULL THEN 'any'
+				WHEN r.port_range_min = r.port_range_max THEN CAST(r.port_range_min AS TEXT)
+				ELSE CAST(r.port_range_min AS TEXT) || '-' || CAST(r.port_range_max AS TEXT)
+			END as port_range,
+			COALESCE(r.remote_ip_prefix, 'any') as remote_ip,
+			r.ethertype,
+			COALESCE(r.remote_group_id, '') as remote_group_id,
+			COALESCE(sg_remote.secgrp_name, '') as remote_group_name
+		FROM ` + cfg.Tables.SecGrpRules + ` r
+		JOIN ` + cfg.Tables.SecGrps + ` s ON r.secgrp_id = s.secgrp_id
+		JOIN ` + cfg.Tables.Projects + ` p ON s.project_id = p.project_id
+		LEFT JOIN ` + cfg.Tables.SecGrps + ` sg_remote ON r.remote_group_id = sg_remote.secgrp_id
+		ORDER BY resource_type DESC, name;`
+	} else if rules {
+		// Basic rules mode
+		query = `SELECT
+			s.secgrp_name as name,
+			s.secgrp_id as id,
+			s.project_id,
+			p.project_name,
+			'security-group' as resource_type,
+			'' as direction,
+			'' as protocol,
+			'' as port_range,
+			'' as remote_ip
+		FROM ` + cfg.Tables.SecGrps + ` s
+		JOIN ` + cfg.Tables.Projects + ` p USING (project_id)
+		UNION ALL
+		SELECT
+			r.rule_id as name,
+			r.secgrp_id as id,
+			s.project_id,
+			p.project_name,
+			'security-group-rule' as resource_type,
+			r.direction,
+			COALESCE(r.protocol, 'any') as protocol,
+			CASE
 				WHEN r.port_range_min IS NULL AND r.port_range_max IS NULL THEN 'any'
 				WHEN r.port_range_min = r.port_range_max THEN CAST(r.port_range_min AS TEXT)
 				ELSE CAST(r.port_range_min AS TEXT) || '-' || CAST(r.port_range_max AS TEXT)
@@ -105,7 +151,20 @@ func Secgrps(db *sql.DB, cfg *config.Config) error {
 		JOIN ` + cfg.Tables.Projects + ` p ON s.project_id = p.project_id
 		ORDER BY resource_type DESC, name;`
 	} else {
-		query += ` ORDER BY s.secgrp_name;`
+		// Security groups only
+		query = `SELECT
+			s.secgrp_name as name,
+			s.secgrp_id as id,
+			s.project_id,
+			p.project_name,
+			'security-group' as resource_type,
+			'' as direction,
+			'' as protocol,
+			'' as port_range,
+			'' as remote_ip
+		FROM ` + cfg.Tables.SecGrps + ` s
+		JOIN ` + cfg.Tables.Projects + ` p USING (project_id)
+		ORDER BY s.secgrp_name;`
 	}
 
 	rows, err := db.QueryContext(ctx, query)
@@ -118,14 +177,33 @@ func Secgrps(db *sql.DB, cfg *config.Config) error {
 	var data [][]string
 	for rows.Next() {
 		var name, id, pid, pname, rtype, direction, protocol, portRange, remoteIP string
-		if err := rows.Scan(&name, &id, &pid, &pname, &rtype, &direction, &protocol, &portRange, &remoteIP); err != nil {
-			return err
+		var ethertype, remoteGroupID, remoteGroupName string
+
+		if rules && fullOutput {
+			if err := rows.Scan(&name, &id, &pid, &pname, &rtype, &direction, &protocol, &portRange, &remoteIP, &ethertype, &remoteGroupID, &remoteGroupName); err != nil {
+				return err
+			}
+			row := []string{name, id, pid, pname, rtype}
+			row = append(row, direction, protocol, portRange, remoteIP, ethertype)
+			// Combine remote_group_id and remote_group_name for display
+			if remoteGroupID != "" && remoteGroupName != "" {
+				row = append(row, remoteGroupID+" ("+remoteGroupName+")")
+			} else if remoteGroupID != "" {
+				row = append(row, remoteGroupID)
+			} else {
+				row = append(row, "")
+			}
+			data = append(data, row)
+		} else {
+			if err := rows.Scan(&name, &id, &pid, &pname, &rtype, &direction, &protocol, &portRange, &remoteIP); err != nil {
+				return err
+			}
+			row := []string{name, id, pid, pname, rtype}
+			if rules {
+				row = append(row, direction, protocol, portRange, remoteIP)
+			}
+			data = append(data, row)
 		}
-		row := []string{name, id, pid, pname, rtype}
-		if rules {
-			row = append(row, direction, protocol, portRange, remoteIP)
-		}
-		data = append(data, row)
 	}
 
 	if err := rows.Err(); err != nil {
@@ -144,7 +222,9 @@ func Secgrps(db *sql.DB, cfg *config.Config) error {
 
 	// Prepare output data with headers
 	headers := []string{"Name", "ID", "Project ID", "Project Name", "Resource Type"}
-	if rules {
+	if rules && fullOutput {
+		headers = append(headers, "Direction", "Protocol", "Port Range", "Remote IP", "Ethertype", "Remote Group")
+	} else if rules {
 		headers = append(headers, "Direction", "Protocol", "Port Range", "Remote IP")
 	}
 	outputData := output.NewOutputData(headers, filteredData)

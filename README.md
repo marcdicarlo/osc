@@ -181,13 +181,35 @@ The security groups command (`osc list secgrps`) provides a unified view of secu
    osc list secgrps -r
    ```
 
-3. Rule details include:
-   - Direction (ingress/egress)
-   - Protocol (tcp, udp, icmp, or 'any')
-   - Port Range (single port, range, or 'any')
-   - Remote IP (CIDR or 'any')
+3. Show full rule details (includes ethertype and remote security groups):
+   ```bash
+   # Full details including ethertype and remote group IDs
+   osc list secgrps -r --full
+   osc list secgrps -r -f
 
-4. Resource types:
+   # Full output in different formats
+   osc list secgrps -r --full -o json
+   osc list secgrps -r -f -o csv
+   ```
+
+4. Rule details:
+   - **Basic mode** (`-r`):
+     - Direction (ingress/egress)
+     - Protocol (tcp, udp, icmp, or 'any')
+     - Port Range (single port, range, or 'any')
+     - Remote IP (CIDR or 'any')
+
+   - **Full mode** (`-r --full` or `-r -f`):
+     - All basic fields plus:
+     - Ethertype (IPv4/IPv6)
+     - Remote Group (source security group ID with resolved name)
+
+   Example full output:
+   ```
+   rule-9  | sg-4 | ... | ingress | tcp | 3306 | any | IPv4 | sg-2 (web-servers)
+   ```
+
+5. Resource types:
    - `security-group`: The security group itself
    - `security-group-rule`: Individual rules within a group
 

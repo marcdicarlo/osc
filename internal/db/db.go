@@ -64,6 +64,7 @@ func MigrateSchema(ctx context.Context, db *sql.DB, cfg *config.Config) error {
 			port_range_min  INTEGER,
 			port_range_max  INTEGER,
 			remote_ip_prefix TEXT,
+			remote_group_id TEXT,
 			FOREIGN KEY(secgrp_id) REFERENCES ` + cfg.Tables.SecGrps + `(secgrp_id) ON DELETE CASCADE
 		)`,
 	}

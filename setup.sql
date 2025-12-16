@@ -40,6 +40,7 @@ CREATE TABLE os_security_group_rules (
     port_range_min  INTEGER,
     port_range_max  INTEGER,
     remote_ip_prefix TEXT,
+    remote_group_id TEXT,
     FOREIGN KEY (secgrp_id) REFERENCES os_security_groups(secgrp_id) ON DELETE CASCADE
 );
 
@@ -70,22 +71,49 @@ INSERT INTO os_servers (server_id, server_name, project_id, ipv4_addr) VALUES
     ('srv-113', 'sa1x-server-p13', 'proj-7', '192.168.7.113'),
     ('srv-114', 'sa1x-server-p14', 'proj-7', '192.168.7.114');
 
--- Insert dummy data into security groups
-INSERT INTO os_security_groups (secgrp_id, secgrp_name, project_id) VALUES 
+-- Insert dummy data into security groups (multi-tier architecture)
+INSERT INTO os_security_groups (secgrp_id, secgrp_name, project_id) VALUES
     ('sg-1', 'default', 'proj-1'),
     ('sg-2', 'web-servers', 'proj-1'),
     ('sg-3', 'default', 'proj-2'),
     ('sg-4', 'database', 'proj-2'),
-    ('sg-5', 'default', 'proj-3');
+    ('sg-5', 'default', 'proj-3'),
+    ('sg-6', 'load-balancer', 'proj-1'),
+    ('sg-7', 'app-servers', 'proj-2');
 
--- Insert dummy data into security group rules
-INSERT INTO os_security_group_rules (rule_id, secgrp_id, direction, ethertype, protocol, port_range_min, port_range_max, remote_ip_prefix) VALUES 
-    ('rule-1', 'sg-1', 'ingress', 'IPv4', 'tcp', 22, 22, '0.0.0.0/0'),
-    ('rule-2', 'sg-1', 'egress', 'IPv4', 'tcp', NULL, NULL, '0.0.0.0/0'),
-    ('rule-3', 'sg-2', 'ingress', 'IPv4', 'tcp', 80, 80, '0.0.0.0/0'),
-    ('rule-4', 'sg-2', 'ingress', 'IPv4', 'tcp', 443, 443, '0.0.0.0/0'),
-    ('rule-5', 'sg-3', 'ingress', 'IPv4', 'tcp', 22, 22, '10.0.0.0/8'),
-    ('rule-6', 'sg-4', 'ingress', 'IPv4', 'tcp', 5432, 5432, '172.16.0.0/12'),
-    ('rule-7', 'sg-4', 'ingress', 'IPv4', 'tcp', 3306, 3306, '172.16.0.0/12');
+-- Insert dummy data into security group rules (realistic multi-tier architecture)
+INSERT INTO os_security_group_rules (rule_id, secgrp_id, direction, ethertype, protocol, port_range_min, port_range_max, remote_ip_prefix, remote_group_id) VALUES
+    -- sg-1 (default): SSH from anywhere
+    ('rule-1', 'sg-1', 'ingress', 'IPv4', 'tcp', 22, 22, '0.0.0.0/0', NULL),
+    ('rule-2', 'sg-1', 'egress', 'IPv4', NULL, NULL, NULL, '0.0.0.0/0', NULL),
+
+    -- sg-2 (web-servers): HTTP/HTTPS from load-balancer group, SSH from private network
+    ('rule-3', 'sg-2', 'ingress', 'IPv4', 'tcp', 80, 80, NULL, 'sg-6'),
+    ('rule-4', 'sg-2', 'ingress', 'IPv4', 'tcp', 443, 443, NULL, 'sg-6'),
+    ('rule-5', 'sg-2', 'ingress', 'IPv4', 'tcp', 22, 22, '10.0.0.0/8', NULL),
+    ('rule-6', 'sg-2', 'egress', 'IPv4', 'tcp', 3306, 3306, NULL, 'sg-4'),
+    ('rule-7', 'sg-2', 'egress', 'IPv4', 'udp', 53, 53, '8.8.8.8/32', NULL),
+
+    -- sg-3 (default): SSH from private network
+    ('rule-8', 'sg-3', 'ingress', 'IPv4', 'tcp', 22, 22, '10.0.0.0/8', NULL),
+
+    -- sg-4 (database): MySQL from web-servers, PostgreSQL from app-servers
+    ('rule-9', 'sg-4', 'ingress', 'IPv4', 'tcp', 3306, 3306, NULL, 'sg-2'),
+    ('rule-10', 'sg-4', 'ingress', 'IPv4', 'tcp', 5432, 5432, NULL, 'sg-7'),
+    ('rule-11', 'sg-4', 'ingress', 'IPv4', 'tcp', 22, 22, '172.16.0.0/12', NULL),
+
+    -- sg-5 (default): No rules (for testing empty security groups)
+
+    -- sg-6 (load-balancer): HTTP/HTTPS from anywhere
+    ('rule-12', 'sg-6', 'ingress', 'IPv4', 'tcp', 80, 80, '0.0.0.0/0', NULL),
+    ('rule-13', 'sg-6', 'ingress', 'IPv4', 'tcp', 443, 443, '0.0.0.0/0', NULL),
+    ('rule-14', 'sg-6', 'egress', 'IPv4', 'tcp', 80, 80, NULL, 'sg-2'),
+    ('rule-15', 'sg-6', 'egress', 'IPv4', 'tcp', 443, 443, NULL, 'sg-2'),
+
+    -- sg-7 (app-servers): Custom app ports from web-servers, database access
+    ('rule-16', 'sg-7', 'ingress', 'IPv4', 'tcp', 8080, 8080, NULL, 'sg-2'),
+    ('rule-17', 'sg-7', 'ingress', 'IPv4', 'tcp', 9000, 9000, NULL, 'sg-2'),
+    ('rule-18', 'sg-7', 'egress', 'IPv4', 'tcp', 5432, 5432, NULL, 'sg-4'),
+    ('rule-19', 'sg-7', 'egress', 'IPv4', 'icmp', NULL, NULL, '8.8.8.8/32', NULL);
 
 

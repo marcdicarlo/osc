@@ -287,7 +287,7 @@ func SyncAll(sqlDB *sql.DB, cfg *config.Config) error {
 	defer stmtSG.Close()
 
 	stmtSGRule, err := tx.PrepareContext(ctx,
-		"INSERT INTO "+cfg.Tables.SecGrpRules+"(rule_id, secgrp_id, direction, ethertype, protocol, port_range_min, port_range_max, remote_ip_prefix) VALUES(?, ?, ?, ?, ?, ?, ?, ?)")
+		"INSERT INTO "+cfg.Tables.SecGrpRules+"(rule_id, secgrp_id, direction, ethertype, protocol, port_range_min, port_range_max, remote_ip_prefix, remote_group_id) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)")
 	if err != nil {
 		return fmt.Errorf("failed to prepare security group rules statement: %w", err)
 	}
@@ -356,7 +356,8 @@ func SyncAll(sqlDB *sql.DB, cfg *config.Config) error {
 				rule.Protocol,
 				rule.PortRangeMin,
 				rule.PortRangeMax,
-				rule.RemoteIPPrefix); err != nil {
+				rule.RemoteIPPrefix,
+				rule.RemoteGroupID); err != nil {
 				return fmt.Errorf("failed to insert rule %s for security group %s at index %d: %w", rule.ID, sg.Group.ID, j, err)
 			}
 		}
