@@ -114,8 +114,8 @@ func (f *JSONFormatter) Format(data *OutputData) error {
 			jsonRow.Type = row[4] // Resource Type is always at index 4
 		}
 
-		// Add rule fields if present
-		if hasRules && len(row) > 8 {
+		// Add rule fields if present and this is a security-group-rule row
+		if hasRules && len(row) > 8 && jsonRow.Type == "security-group-rule" {
 			jsonRow.RuleFields = &JSONRuleFields{
 				Direction: getValueOrDefault(row[5], "n/a"),
 				Protocol:  getValueOrDefault(row[6], "n/a"),

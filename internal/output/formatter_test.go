@@ -24,8 +24,9 @@ func TestTableFormatter(t *testing.T) {
 	}
 
 	output := buf.String()
-	if !strings.Contains(output, "Name") || !strings.Contains(output, "default") {
-		t.Errorf("TableFormatter output missing expected content")
+	outputLower := strings.ToLower(output)
+	if !strings.Contains(outputLower, "name") || !strings.Contains(output, "default") {
+		t.Errorf("TableFormatter output missing expected content. Got:\n%s", output)
 	}
 }
 

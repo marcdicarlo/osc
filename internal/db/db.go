@@ -73,5 +73,48 @@ func MigrateSchema(ctx context.Context, db *sql.DB, cfg *config.Config) error {
 			return err
 		}
 	}
+
+	// Migration: Add remote_group_id column if it doesn't exist (for existing databases)
+	if err := addColumnIfNotExists(ctx, db, cfg.Tables.SecGrpRules, "remote_group_id", "TEXT"); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// addColumnIfNotExists adds a column to a table if it doesn't already exist.
+func addColumnIfNotExists(ctx context.Context, db *sql.DB, tableName, columnName, columnType string) error {
+	// Check if column exists by querying table_info
+	var exists bool
+	rows, err := db.QueryContext(ctx, "PRAGMA table_info("+tableName+")")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dfltValue sql.NullString
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
+			return err
+		}
+		if name == columnName {
+			exists = true
+			break
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	// Add column if it doesn't exist
+	if !exists {
+		_, err := db.ExecContext(ctx, "ALTER TABLE "+tableName+" ADD COLUMN "+columnName+" "+columnType)
+		return err
+	}
+
 	return nil
 }
