@@ -18,8 +18,9 @@ import (
 
 // secgrpsCmd represents the secgrps command
 var (
-	rules      bool
-	fullOutput bool
+	rules       bool
+	fullOutput  bool
+	sortGrouped bool
 	secgrpsCmd = &cobra.Command{
 		Use:   "secgrps",
 		Short: "List all OpenStack security groups and rules",
@@ -39,6 +40,14 @@ osc list secgrps -r
 # list security groups with full rule details (ethertype, remote groups)
 osc list secgrps -r --full
 osc list secgrps -r -f
+
+# list security groups grouped with their rules
+osc list secgrps -r -s
+osc list secgrps -r --sort
+
+# combine sort with full output
+osc list secgrps -r -f -s
+osc list secgrps -r --full --sort -o json
 
 # list security groups and rules in different formats
 osc list secgrps -r -o json
@@ -67,6 +76,7 @@ func init() {
 	listCmd.AddCommand(secgrpsCmd)
 	secgrpsCmd.Flags().BoolVarP(&rules, "rules", "r", false, "Show rules for each security group")
 	secgrpsCmd.Flags().BoolVarP(&fullOutput, "full", "f", false, "Show full rule details including ethertype and remote group IDs (requires -r)")
+	secgrpsCmd.Flags().BoolVarP(&sortGrouped, "sort", "s", false, "Group security groups with their rules together (requires -r)")
 	secgrpsCmd.Flags().StringVarP(&projectFilter, "project", "p", "", "Filter security groups by project name (shows projects containing this string)")
 }
 
@@ -116,7 +126,13 @@ func Secgrps(db *sql.DB, cfg *config.Config) error {
 		JOIN ` + cfg.Tables.SecGrps + ` s ON r.secgrp_id = s.secgrp_id
 		JOIN ` + cfg.Tables.Projects + ` p ON s.project_id = p.project_id
 		LEFT JOIN ` + cfg.Tables.SecGrps + ` sg_remote ON r.remote_group_id = sg_remote.secgrp_id
-		ORDER BY resource_type DESC, name;`
+		`
+		// Add ORDER BY clause based on sort flag
+		if sortGrouped {
+			query += "ORDER BY id, resource_type, name;"
+		} else {
+			query += "ORDER BY resource_type DESC, name;"
+		}
 	} else if rules {
 		// Basic rules mode
 		query = `SELECT
@@ -149,7 +165,13 @@ func Secgrps(db *sql.DB, cfg *config.Config) error {
 		FROM ` + cfg.Tables.SecGrpRules + ` r
 		JOIN ` + cfg.Tables.SecGrps + ` s ON r.secgrp_id = s.secgrp_id
 		JOIN ` + cfg.Tables.Projects + ` p ON s.project_id = p.project_id
-		ORDER BY resource_type DESC, name;`
+		`
+		// Add ORDER BY clause based on sort flag
+		if sortGrouped {
+			query += "ORDER BY id, resource_type, name;"
+		} else {
+			query += "ORDER BY resource_type DESC, name;"
+		}
 	} else {
 		// Security groups only
 		query = `SELECT
