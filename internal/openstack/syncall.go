@@ -12,6 +12,8 @@ import (
 	"github.com/marcdicarlo/osc/internal/config"
 
 	"github.com/gophercloud/gophercloud"
+	"github.com/gophercloud/gophercloud/openstack/blockstorage/v3/volumes"
+	"github.com/gophercloud/gophercloud/openstack/compute/v2/extensions/volumeattach"
 	"github.com/gophercloud/gophercloud/openstack/compute/v2/servers"
 	"github.com/gophercloud/gophercloud/openstack/identity/v3/projects"
 	"github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/security/groups"
@@ -20,52 +22,47 @@ import (
 )
 
 // initOpenStackClients initializes and verifies connectivity to all required OpenStack services
-func initOpenStackClients(cfg *config.Config) (*gophercloud.ServiceClient, *gophercloud.ServiceClient, *gophercloud.ServiceClient, error) {
+func initOpenStackClients(cfg *config.Config) (*gophercloud.ServiceClient, *gophercloud.ServiceClient, *gophercloud.ServiceClient, *gophercloud.ServiceClient, error) {
 	opts := new(clientconfig.ClientOpts)
 
 	// Initialize compute client
 	computeClient, err := clientconfig.NewServiceClient(cfg.OpenStack.ComputeService, opts)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to create compute client: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("failed to create compute client: %w", err)
 	}
-
-	// Verify compute connectivity with a simple list operation
-	// if _, err := servers.List(computeClient, servers.ListOpts{Limit: 1}).AllPages(); err != nil {
-	// 	return nil, nil, nil, fmt.Errorf("failed to verify compute service connectivity: %w", err)
-	// }
 
 	// Initialize identity client
 	identityClient, err := clientconfig.NewServiceClient(cfg.OpenStack.IdentityService, opts)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to create identity client: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("failed to create identity client: %w", err)
 	}
-
-	// Verify identity connectivity
-	// if _, err := projects.List(identityClient, nil).AllPages(); err != nil {
-	// 	return nil, nil, nil, fmt.Errorf("failed to verify identity service connectivity: %w", err)
-	// }
 
 	// Initialize network client
 	networkClient, err := clientconfig.NewServiceClient("network", opts)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to create network client: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("failed to create network client: %w", err)
 	}
 
-	// Verify network connectivity
-	// if _, err := groups.List(networkClient, groups.ListOpts{Limit: 1}).AllPages(); err != nil {
-	// 	return nil, nil, nil, fmt.Errorf("failed to verify network service connectivity: %w", err)
-	// }
+	// Initialize block storage client
+	blockStorageClient, err := clientconfig.NewServiceClient("volume", opts)
+	if err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("failed to create block storage client: %w", err)
+	}
 
-	return computeClient, identityClient, networkClient, nil
+	return computeClient, identityClient, networkClient, blockStorageClient, nil
 }
 
 // clearTables safely clears all tables while maintaining their structure
 func clearTables(ctx context.Context, tx *sql.Tx, cfg *config.Config) error {
+	// Clear junction tables first due to FK constraints
 	tables := []string{
+		cfg.Tables.ServerVolumes,
+		cfg.Tables.ServerSecGrps,
+		cfg.Tables.Volumes,
+		cfg.Tables.SecGrpRules,
+		cfg.Tables.SecGrps,
 		cfg.Tables.Servers,
 		cfg.Tables.Projects,
-		cfg.Tables.SecGrps,
-		cfg.Tables.SecGrpRules,
 	}
 
 	for _, table := range tables {
@@ -203,8 +200,7 @@ func SyncAll(sqlDB *sql.DB, cfg *config.Config) error {
 	log.Printf("Starting OpenStack sync with compute service: %s, identity service: %s", cfg.OpenStack.ComputeService, cfg.OpenStack.IdentityService)
 
 	// First verify OpenStack connectivity before making any database changes
-	// log.Println("Verifying OpenStack connectivity")
-	computeClient, identityClient, networkClient, err := initOpenStackClients(cfg)
+	computeClient, identityClient, networkClient, blockStorageClient, err := initOpenStackClients(cfg)
 	if err != nil {
 		return fmt.Errorf("OpenStack authentication failed: %w", err)
 	}
@@ -263,6 +259,27 @@ func SyncAll(sqlDB *sql.DB, cfg *config.Config) error {
 	}
 	log.Printf("Total security groups found: %d", len(allSecurityGroups))
 
+	// Fetch volumes
+	log.Printf("Fetching volumes (AllTenants: %v)", cfg.OpenStack.AllTenants)
+	volPager, err := volumes.List(blockStorageClient, volumes.ListOpts{AllTenants: cfg.OpenStack.AllTenants}).AllPages()
+	if err != nil {
+		return fmt.Errorf("failed to list volumes: %w", err)
+	}
+	volList, err := volumes.ExtractVolumes(volPager)
+	if err != nil {
+		return fmt.Errorf("failed to extract volumes: %w", err)
+	}
+	log.Printf("Found %d volumes", len(volList))
+
+	// Build a map of security group name -> ID for each project (for server-secgrp lookups)
+	sgNameToID := make(map[string]map[string]string) // projectID -> (sgName -> sgID)
+	for _, sg := range allSecurityGroups {
+		if sgNameToID[sg.ProjectID] == nil {
+			sgNameToID[sg.ProjectID] = make(map[string]string)
+		}
+		sgNameToID[sg.ProjectID][sg.Group.Name] = sg.Group.ID
+	}
+
 	// Prepare statements
 	log.Println("Preparing statements")
 	stmtPrj, err := tx.PrepareContext(ctx,
@@ -292,6 +309,27 @@ func SyncAll(sqlDB *sql.DB, cfg *config.Config) error {
 		return fmt.Errorf("failed to prepare security group rules statement: %w", err)
 	}
 	defer stmtSGRule.Close()
+
+	stmtVol, err := tx.PrepareContext(ctx,
+		"INSERT INTO "+cfg.Tables.Volumes+"(volume_id, volume_name, size_gb, volume_type, project_id) VALUES(?, ?, ?, ?, ?)")
+	if err != nil {
+		return fmt.Errorf("failed to prepare volumes statement: %w", err)
+	}
+	defer stmtVol.Close()
+
+	stmtSrvSG, err := tx.PrepareContext(ctx,
+		"INSERT OR IGNORE INTO "+cfg.Tables.ServerSecGrps+"(server_id, secgrp_id) VALUES(?, ?)")
+	if err != nil {
+		return fmt.Errorf("failed to prepare server security groups statement: %w", err)
+	}
+	defer stmtSrvSG.Close()
+
+	stmtSrvVol, err := tx.PrepareContext(ctx,
+		"INSERT OR IGNORE INTO "+cfg.Tables.ServerVolumes+"(server_id, volume_id, device_path) VALUES(?, ?, ?)")
+	if err != nil {
+		return fmt.Errorf("failed to prepare server volumes statement: %w", err)
+	}
+	defer stmtSrvVol.Close()
 
 	// Insert data
 	log.Printf("Starting to insert %d projects", len(prjList))
@@ -332,6 +370,40 @@ func SyncAll(sqlDB *sql.DB, cfg *config.Config) error {
 		if _, err := stmtSrv.ExecContext(ctx, s.ID, s.Name, s.TenantID, ipv4Addr); err != nil {
 			return fmt.Errorf("failed to insert server %s (%s) at index %d: %w", s.Name, s.ID, i, err)
 		}
+
+		// Insert server-security group attachments
+		for _, sgMap := range s.SecurityGroups {
+			sgName, ok := sgMap["name"].(string)
+			if !ok {
+				continue
+			}
+			// Look up security group ID by name in this project
+			if projectSGs, exists := sgNameToID[s.TenantID]; exists {
+				if sgID, found := projectSGs[sgName]; found {
+					if _, err := stmtSrvSG.ExecContext(ctx, s.ID, sgID); err != nil {
+						log.Printf("Warning: failed to insert server-secgrp mapping for server %s, secgrp %s: %v", s.ID, sgID, err)
+					}
+				}
+			}
+		}
+
+		// Fetch and insert volume attachments for this server
+		attachPager, err := volumeattach.List(computeClient, s.ID).AllPages()
+		if err != nil {
+			log.Printf("Warning: failed to list volume attachments for server %s: %v", s.ID, err)
+		} else {
+			attachments, err := volumeattach.ExtractVolumeAttachments(attachPager)
+			if err != nil {
+				log.Printf("Warning: failed to extract volume attachments for server %s: %v", s.ID, err)
+			} else {
+				for _, att := range attachments {
+					if _, err := stmtSrvVol.ExecContext(ctx, s.ID, att.VolumeID, att.Device); err != nil {
+						log.Printf("Warning: failed to insert server-volume mapping for server %s, volume %s: %v", s.ID, att.VolumeID, err)
+					}
+				}
+			}
+		}
+
 		if (i+1)%100 == 0 {
 			log.Printf("Inserted %d/%d servers", i+1, len(srvList))
 		}
@@ -364,6 +436,21 @@ func SyncAll(sqlDB *sql.DB, cfg *config.Config) error {
 
 		if (i+1)%10 == 0 {
 			log.Printf("Inserted %d/%d security groups", i+1, len(allSecurityGroups))
+		}
+	}
+
+	// Insert volumes
+	log.Printf("Starting to insert %d volumes", len(volList))
+	for i, v := range volList {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("context cancelled during volume insertion: %w", err)
+		}
+		// Note: project_id is NULL as gophercloud Volume struct doesn't include it directly
+		if _, err := stmtVol.ExecContext(ctx, v.ID, v.Name, v.Size, v.VolumeType, nil); err != nil {
+			return fmt.Errorf("failed to insert volume %s (%s) at index %d: %w", v.Name, v.ID, i, err)
+		}
+		if (i+1)%100 == 0 {
+			log.Printf("Inserted %d/%d volumes", i+1, len(volList))
 		}
 	}
 

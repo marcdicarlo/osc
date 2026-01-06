@@ -67,6 +67,29 @@ func MigrateSchema(ctx context.Context, db *sql.DB, cfg *config.Config) error {
 			remote_group_id TEXT,
 			FOREIGN KEY(secgrp_id) REFERENCES ` + cfg.Tables.SecGrps + `(secgrp_id) ON DELETE CASCADE
 		)`,
+		`CREATE TABLE IF NOT EXISTS ` + cfg.Tables.Volumes + ` (
+			volume_id    TEXT PRIMARY KEY,
+			volume_name  TEXT NOT NULL,
+			size_gb      INTEGER NOT NULL,
+			volume_type  TEXT,
+			project_id   TEXT,
+			FOREIGN KEY(project_id) REFERENCES ` + cfg.Tables.Projects + `(project_id) ON DELETE CASCADE
+		)`,
+		`CREATE TABLE IF NOT EXISTS ` + cfg.Tables.ServerSecGrps + ` (
+			server_id TEXT NOT NULL,
+			secgrp_id TEXT NOT NULL,
+			PRIMARY KEY (server_id, secgrp_id),
+			FOREIGN KEY(server_id) REFERENCES ` + cfg.Tables.Servers + `(server_id) ON DELETE CASCADE,
+			FOREIGN KEY(secgrp_id) REFERENCES ` + cfg.Tables.SecGrps + `(secgrp_id) ON DELETE CASCADE
+		)`,
+		`CREATE TABLE IF NOT EXISTS ` + cfg.Tables.ServerVolumes + ` (
+			server_id   TEXT NOT NULL,
+			volume_id   TEXT NOT NULL,
+			device_path TEXT NOT NULL,
+			PRIMARY KEY (server_id, volume_id),
+			FOREIGN KEY(server_id) REFERENCES ` + cfg.Tables.Servers + `(server_id) ON DELETE CASCADE,
+			FOREIGN KEY(volume_id) REFERENCES ` + cfg.Tables.Volumes + `(volume_id) ON DELETE CASCADE
+		)`,
 	}
 	for _, s := range stmts {
 		if _, err := db.ExecContext(ctx, s); err != nil {

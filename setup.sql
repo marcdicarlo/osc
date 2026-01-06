@@ -1,7 +1,10 @@
 -- Enable foreign key constraints (SQLite requires this)
 PRAGMA foreign_keys = ON;
 
--- Drop tables if they exist
+-- Drop tables if they exist (junction tables first due to FK constraints)
+DROP TABLE IF EXISTS os_server_volumes;
+DROP TABLE IF EXISTS os_server_secgrps;
+DROP TABLE IF EXISTS os_volumes;
 DROP TABLE IF EXISTS os_security_group_rules;
 DROP TABLE IF EXISTS os_security_groups;
 DROP TABLE IF EXISTS os_servers;
@@ -116,4 +119,66 @@ INSERT INTO os_security_group_rules (rule_id, secgrp_id, direction, ethertype, p
     ('rule-18', 'sg-7', 'egress', 'IPv4', 'tcp', 5432, 5432, NULL, 'sg-4'),
     ('rule-19', 'sg-7', 'egress', 'IPv4', 'icmp', NULL, NULL, '8.8.8.8/32', NULL);
 
+-- Create table for volumes
+CREATE TABLE os_volumes (
+    volume_id    TEXT PRIMARY KEY,
+    volume_name  TEXT NOT NULL,
+    size_gb      INTEGER NOT NULL,
+    volume_type  TEXT,
+    project_id   TEXT,
+    FOREIGN KEY (project_id) REFERENCES os_project_names(project_id) ON DELETE CASCADE
+);
 
+-- Create table for server-security group mappings
+CREATE TABLE os_server_secgrps (
+    server_id TEXT NOT NULL,
+    secgrp_id TEXT NOT NULL,
+    PRIMARY KEY (server_id, secgrp_id),
+    FOREIGN KEY (server_id) REFERENCES os_servers(server_id) ON DELETE CASCADE,
+    FOREIGN KEY (secgrp_id) REFERENCES os_security_groups(secgrp_id) ON DELETE CASCADE
+);
+
+-- Create table for server-volume mappings
+CREATE TABLE os_server_volumes (
+    server_id   TEXT NOT NULL,
+    volume_id   TEXT NOT NULL,
+    device_path TEXT NOT NULL,
+    PRIMARY KEY (server_id, volume_id),
+    FOREIGN KEY (server_id) REFERENCES os_servers(server_id) ON DELETE CASCADE,
+    FOREIGN KEY (volume_id) REFERENCES os_volumes(volume_id) ON DELETE CASCADE
+);
+
+-- Insert sample volumes with various sizes and types
+INSERT INTO os_volumes (volume_id, volume_name, size_gb, volume_type, project_id) VALUES
+    ('vol-1', 'data-volume-1', 100, 'SSD', 'proj-1'),
+    ('vol-2', 'backup-volume-1', 500, 'HDD', 'proj-1'),
+    ('vol-3', 'db-volume-1', 250, 'SSD', 'proj-2'),
+    ('vol-4', 'app-volume-1', 50, 'SSD', 'proj-2'),
+    ('vol-5', 'log-volume-1', 200, 'HDD', 'proj-3'),
+    ('vol-6', 'cache-volume-1', 100, 'SSD', 'proj-3'),
+    ('vol-7', 'temp-volume-1', 50, NULL, 'proj-4');
+
+-- Insert server-security group mappings (multiple SGs per server)
+INSERT INTO os_server_secgrps (server_id, secgrp_id) VALUES
+    ('srv-101', 'sg-1'),
+    ('srv-101', 'sg-2'),
+    ('srv-102', 'sg-1'),
+    ('srv-102', 'sg-6'),
+    ('srv-103', 'sg-3'),
+    ('srv-103', 'sg-4'),
+    ('srv-104', 'sg-3'),
+    ('srv-104', 'sg-7'),
+    ('srv-105', 'sg-5'),
+    ('srv-106', 'sg-5'),
+    ('srv-107', 'sg-1'),
+    ('srv-108', 'sg-1');
+
+-- Insert server-volume mappings
+INSERT INTO os_server_volumes (server_id, volume_id, device_path) VALUES
+    ('srv-101', 'vol-1', '/dev/vdb'),
+    ('srv-101', 'vol-2', '/dev/vdc'),
+    ('srv-103', 'vol-3', '/dev/vdb'),
+    ('srv-104', 'vol-4', '/dev/vdb'),
+    ('srv-105', 'vol-5', '/dev/vdb'),
+    ('srv-105', 'vol-6', '/dev/vdc'),
+    ('srv-107', 'vol-7', '/dev/vdb');

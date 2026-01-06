@@ -13,11 +13,14 @@ type Config struct {
 	ProjectFilter string        `yaml:"project_filter"`
 	DBFile        string        `yaml:"db_file"`
 	DBTimeout     time.Duration `yaml:"db_timeout"`
-	Tables        struct {
-		Projects    string `yaml:"projects_table"`
-		Servers     string `yaml:"servers_table"`
-		SecGrps     string `yaml:"secgrps_table"`
-		SecGrpRules string `yaml:"secgrp_rules_table"`
+	Tables struct {
+		Projects      string `yaml:"projects_table"`
+		Servers       string `yaml:"servers_table"`
+		SecGrps       string `yaml:"secgrps_table"`
+		SecGrpRules   string `yaml:"secgrp_rules_table"`
+		Volumes       string `yaml:"volumes_table"`
+		ServerSecGrps string `yaml:"server_secgrps_table"`
+		ServerVolumes string `yaml:"server_volumes_table"`
 	} `yaml:"tables"`
 	OpenStack struct {
 		ComputeService  string `yaml:"compute_service"`
