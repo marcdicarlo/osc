@@ -47,6 +47,11 @@ func MigrateSchema(ctx context.Context, db *sql.DB, cfg *config.Config) error {
 			server_name TEXT NOT NULL,
 			project_id  TEXT NOT NULL,
 			ipv4_addr   TEXT,
+			status      TEXT,
+			image_id    TEXT,
+			image_name  TEXT,
+			flavor_id   TEXT,
+			flavor_name TEXT,
 			FOREIGN KEY(project_id) REFERENCES ` + cfg.Tables.Projects + `(project_id) ON DELETE CASCADE
 		)`,
 		`CREATE TABLE IF NOT EXISTS ` + cfg.Tables.SecGrps + ` (
@@ -100,6 +105,20 @@ func MigrateSchema(ctx context.Context, db *sql.DB, cfg *config.Config) error {
 	// Migration: Add remote_group_id column if it doesn't exist (for existing databases)
 	if err := addColumnIfNotExists(ctx, db, cfg.Tables.SecGrpRules, "remote_group_id", "TEXT"); err != nil {
 		return err
+	}
+
+	// Migration: Add new server columns if they don't exist (for existing databases)
+	serverColumns := []struct{ name, colType string }{
+		{"status", "TEXT"},
+		{"image_id", "TEXT"},
+		{"image_name", "TEXT"},
+		{"flavor_id", "TEXT"},
+		{"flavor_name", "TEXT"},
+	}
+	for _, col := range serverColumns {
+		if err := addColumnIfNotExists(ctx, db, cfg.Tables.Servers, col.name, col.colType); err != nil {
+			return err
+		}
 	}
 
 	return nil

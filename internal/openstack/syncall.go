@@ -13,7 +13,6 @@ import (
 
 	"github.com/gophercloud/gophercloud"
 	"github.com/gophercloud/gophercloud/openstack/blockstorage/v3/volumes"
-	"github.com/gophercloud/gophercloud/openstack/compute/v2/extensions/volumeattach"
 	"github.com/gophercloud/gophercloud/openstack/compute/v2/servers"
 	"github.com/gophercloud/gophercloud/openstack/identity/v3/projects"
 	"github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/security/groups"
@@ -290,7 +289,7 @@ func SyncAll(sqlDB *sql.DB, cfg *config.Config) error {
 	defer stmtPrj.Close()
 
 	stmtSrv, err := tx.PrepareContext(ctx,
-		"INSERT INTO "+cfg.Tables.Servers+"(server_id, server_name, project_id, ipv4_addr) VALUES(?, ?, ?, ?)")
+		"INSERT INTO "+cfg.Tables.Servers+"(server_id, server_name, project_id, ipv4_addr, status, image_id, image_name, flavor_id, flavor_name) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)")
 	if err != nil {
 		return fmt.Errorf("failed to prepare servers statement: %w", err)
 	}
@@ -367,7 +366,30 @@ func SyncAll(sqlDB *sql.DB, cfg *config.Config) error {
 			}
 		}
 
-		if _, err := stmtSrv.ExecContext(ctx, s.ID, s.Name, s.TenantID, ipv4Addr); err != nil {
+		// Extract image info
+		var imageID, imageName string
+		if s.Image != nil {
+			if id, ok := s.Image["id"].(string); ok {
+				imageID = id
+			}
+			if name, ok := s.Image["name"].(string); ok {
+				imageName = name
+			}
+		}
+
+		// Extract flavor info
+		var flavorID, flavorName string
+		if s.Flavor != nil {
+			if id, ok := s.Flavor["id"].(string); ok {
+				flavorID = id
+			}
+			if name, ok := s.Flavor["name"].(string); ok {
+				flavorName = name
+			}
+		}
+
+		if _, err := stmtSrv.ExecContext(ctx, s.ID, s.Name, s.TenantID, ipv4Addr,
+			s.Status, imageID, imageName, flavorID, flavorName); err != nil {
 			return fmt.Errorf("failed to insert server %s (%s) at index %d: %w", s.Name, s.ID, i, err)
 		}
 
@@ -444,23 +466,14 @@ func SyncAll(sqlDB *sql.DB, cfg *config.Config) error {
 	}
 	log.Printf("Inserted %d server-security group mappings", serverSGCount)
 
-	// Insert server-volume mappings (after volumes are inserted)
+	// Insert server-volume mappings (using AttachedVolumes from server data)
 	log.Println("Inserting server-volume mappings")
 	serverVolCount := 0
 	for _, s := range srvList {
-		attachPager, err := volumeattach.List(computeClient, s.ID).AllPages()
-		if err != nil {
-			log.Printf("Warning: failed to list volume attachments for server %s: %v", s.ID, err)
-			continue
-		}
-		attachments, err := volumeattach.ExtractVolumeAttachments(attachPager)
-		if err != nil {
-			log.Printf("Warning: failed to extract volume attachments for server %s: %v", s.ID, err)
-			continue
-		}
-		for _, att := range attachments {
-			if _, err := stmtSrvVol.ExecContext(ctx, s.ID, att.VolumeID, att.Device); err != nil {
-				log.Printf("Warning: failed to insert server-volume mapping for server %s, volume %s: %v", s.ID, att.VolumeID, err)
+		for _, vol := range s.AttachedVolumes {
+			// Note: AttachedVolume only has ID, device path is not available from this API
+			if _, err := stmtSrvVol.ExecContext(ctx, s.ID, vol.ID, ""); err != nil {
+				log.Printf("Warning: failed to insert server-volume mapping for server %s, volume %s: %v", s.ID, vol.ID, err)
 			} else {
 				serverVolCount++
 			}

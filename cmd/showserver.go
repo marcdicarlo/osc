@@ -65,6 +65,11 @@ type ServerDetail struct {
 	ProjectID      string
 	ProjectName    string
 	IPv4Addr       string
+	Status         string
+	ImageID        string
+	ImageName      string
+	FlavorID       string
+	FlavorName     string
 	SecurityGroups []SecurityGroupInfo
 	Volumes        []VolumeInfo
 }
@@ -95,7 +100,10 @@ func ShowServer(database *sql.DB, cfg *config.Config, serverName string) error {
 	}
 
 	// Query for matching servers
-	query := `SELECT s.server_id, s.server_name, s.project_id, p.project_name, COALESCE(s.ipv4_addr, '')
+	query := `SELECT s.server_id, s.server_name, s.project_id, p.project_name,
+                     COALESCE(s.ipv4_addr, ''), COALESCE(s.status, ''),
+                     COALESCE(s.image_id, ''), COALESCE(s.image_name, ''),
+                     COALESCE(s.flavor_id, ''), COALESCE(s.flavor_name, '')
               FROM ` + cfg.Tables.Servers + ` s
               JOIN ` + cfg.Tables.Projects + ` p USING (project_id)
               WHERE s.server_name = ?`
@@ -117,7 +125,8 @@ func ShowServer(database *sql.DB, cfg *config.Config, serverName string) error {
 	var servers []ServerDetail
 	for rows.Next() {
 		var srv ServerDetail
-		if err := rows.Scan(&srv.ServerID, &srv.ServerName, &srv.ProjectID, &srv.ProjectName, &srv.IPv4Addr); err != nil {
+		if err := rows.Scan(&srv.ServerID, &srv.ServerName, &srv.ProjectID, &srv.ProjectName,
+			&srv.IPv4Addr, &srv.Status, &srv.ImageID, &srv.ImageName, &srv.FlavorID, &srv.FlavorName); err != nil {
 			return err
 		}
 		servers = append(servers, srv)
@@ -212,9 +221,14 @@ func outputServerDetails(servers []ServerDetail) error {
 type ServerJSON struct {
 	Server         string   `json:"server"`
 	ServerID       string   `json:"server_id"`
+	Status         string   `json:"status"`
 	ProjectID      string   `json:"project_id"`
 	ProjectName    string   `json:"project_name"`
 	IPv4Addr       string   `json:"ipv4_addr"`
+	ImageID        string   `json:"image_id"`
+	ImageName      string   `json:"image_name"`
+	FlavorID       string   `json:"flavor_id"`
+	FlavorName     string   `json:"flavor_name"`
 	SecurityGroups []string `json:"security_groups"`
 }
 
@@ -224,9 +238,14 @@ func outputServerJSON(servers []ServerDetail) error {
 		sj := ServerJSON{
 			Server:         srv.ServerName,
 			ServerID:       srv.ServerID,
+			Status:         srv.Status,
 			ProjectID:      srv.ProjectID,
 			ProjectName:    srv.ProjectName,
 			IPv4Addr:       srv.IPv4Addr,
+			ImageID:        srv.ImageID,
+			ImageName:      srv.ImageName,
+			FlavorID:       srv.FlavorID,
+			FlavorName:     srv.FlavorName,
 			SecurityGroups: make([]string, 0, len(srv.SecurityGroups)),
 		}
 		for _, sg := range srv.SecurityGroups {
@@ -245,7 +264,8 @@ func outputServerCSV(servers []ServerDetail) error {
 	defer writer.Flush()
 
 	// Write header
-	if err := writer.Write([]string{"server", "server_id", "project_id", "project_name", "ipv4_addr", "security_groups"}); err != nil {
+	if err := writer.Write([]string{"server", "server_id", "status", "project_id", "project_name",
+		"ipv4_addr", "image_id", "image_name", "flavor_id", "flavor_name", "security_groups"}); err != nil {
 		return err
 	}
 
@@ -257,9 +277,14 @@ func outputServerCSV(servers []ServerDetail) error {
 		if err := writer.Write([]string{
 			srv.ServerName,
 			srv.ServerID,
+			srv.Status,
 			srv.ProjectID,
 			srv.ProjectName,
 			srv.IPv4Addr,
+			srv.ImageID,
+			srv.ImageName,
+			srv.FlavorID,
+			srv.FlavorName,
 			strings.Join(sgList, ", "),
 		}); err != nil {
 			return err
@@ -275,8 +300,31 @@ func outputServerTable(servers []ServerDetail) error {
 		}
 		fmt.Printf("Server: %s\n", srv.ServerName)
 		fmt.Printf("  ID:           %s\n", srv.ServerID)
+		fmt.Printf("  Status:       %s\n", srv.Status)
 		fmt.Printf("  Project:      %s (%s)\n", srv.ProjectName, srv.ProjectID)
 		fmt.Printf("  IPv4 Address: %s\n", srv.IPv4Addr)
+
+		// Image info
+		if srv.ImageID != "" || srv.ImageName != "" {
+			if srv.ImageName != "" && srv.ImageID != "" {
+				fmt.Printf("  Image:        %s (%s)\n", srv.ImageName, srv.ImageID)
+			} else if srv.ImageName != "" {
+				fmt.Printf("  Image:        %s\n", srv.ImageName)
+			} else {
+				fmt.Printf("  Image:        %s\n", srv.ImageID)
+			}
+		}
+
+		// Flavor info
+		if srv.FlavorID != "" || srv.FlavorName != "" {
+			if srv.FlavorName != "" && srv.FlavorID != "" {
+				fmt.Printf("  Flavor:       %s (%s)\n", srv.FlavorName, srv.FlavorID)
+			} else if srv.FlavorName != "" {
+				fmt.Printf("  Flavor:       %s\n", srv.FlavorName)
+			} else {
+				fmt.Printf("  Flavor:       %s\n", srv.FlavorID)
+			}
+		}
 
 		fmt.Printf("\n  Security Groups:\n")
 		if len(srv.SecurityGroups) == 0 {
@@ -296,8 +344,13 @@ func outputServerTable(servers []ServerDetail) error {
 				if volType == "" {
 					volType = "default"
 				}
-				fmt.Printf("    - %s (%s): %dGB %s @ %s\n",
-					vol.Name, vol.ID, vol.SizeGB, volType, vol.DevicePath)
+				if vol.DevicePath != "" {
+					fmt.Printf("    - %s (%s): %dGB %s @ %s\n",
+						vol.Name, vol.ID, vol.SizeGB, volType, vol.DevicePath)
+				} else {
+					fmt.Printf("    - %s (%s): %dGB %s\n",
+						vol.Name, vol.ID, vol.SizeGB, volType)
+				}
 			}
 		}
 	}
