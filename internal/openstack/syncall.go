@@ -371,39 +371,6 @@ func SyncAll(sqlDB *sql.DB, cfg *config.Config) error {
 			return fmt.Errorf("failed to insert server %s (%s) at index %d: %w", s.Name, s.ID, i, err)
 		}
 
-		// Insert server-security group attachments
-		for _, sgMap := range s.SecurityGroups {
-			sgName, ok := sgMap["name"].(string)
-			if !ok {
-				continue
-			}
-			// Look up security group ID by name in this project
-			if projectSGs, exists := sgNameToID[s.TenantID]; exists {
-				if sgID, found := projectSGs[sgName]; found {
-					if _, err := stmtSrvSG.ExecContext(ctx, s.ID, sgID); err != nil {
-						log.Printf("Warning: failed to insert server-secgrp mapping for server %s, secgrp %s: %v", s.ID, sgID, err)
-					}
-				}
-			}
-		}
-
-		// Fetch and insert volume attachments for this server
-		attachPager, err := volumeattach.List(computeClient, s.ID).AllPages()
-		if err != nil {
-			log.Printf("Warning: failed to list volume attachments for server %s: %v", s.ID, err)
-		} else {
-			attachments, err := volumeattach.ExtractVolumeAttachments(attachPager)
-			if err != nil {
-				log.Printf("Warning: failed to extract volume attachments for server %s: %v", s.ID, err)
-			} else {
-				for _, att := range attachments {
-					if _, err := stmtSrvVol.ExecContext(ctx, s.ID, att.VolumeID, att.Device); err != nil {
-						log.Printf("Warning: failed to insert server-volume mapping for server %s, volume %s: %v", s.ID, att.VolumeID, err)
-					}
-				}
-			}
-		}
-
 		if (i+1)%100 == 0 {
 			log.Printf("Inserted %d/%d servers", i+1, len(srvList))
 		}
@@ -453,6 +420,53 @@ func SyncAll(sqlDB *sql.DB, cfg *config.Config) error {
 			log.Printf("Inserted %d/%d volumes", i+1, len(volList))
 		}
 	}
+
+	// Insert server-security group mappings (after security groups are inserted)
+	log.Println("Inserting server-security group mappings")
+	serverSGCount := 0
+	for _, s := range srvList {
+		for _, sgMap := range s.SecurityGroups {
+			sgName, ok := sgMap["name"].(string)
+			if !ok {
+				continue
+			}
+			// Look up security group ID by name in this project
+			if projectSGs, exists := sgNameToID[s.TenantID]; exists {
+				if sgID, found := projectSGs[sgName]; found {
+					if _, err := stmtSrvSG.ExecContext(ctx, s.ID, sgID); err != nil {
+						log.Printf("Warning: failed to insert server-secgrp mapping for server %s, secgrp %s: %v", s.ID, sgID, err)
+					} else {
+						serverSGCount++
+					}
+				}
+			}
+		}
+	}
+	log.Printf("Inserted %d server-security group mappings", serverSGCount)
+
+	// Insert server-volume mappings (after volumes are inserted)
+	log.Println("Inserting server-volume mappings")
+	serverVolCount := 0
+	for _, s := range srvList {
+		attachPager, err := volumeattach.List(computeClient, s.ID).AllPages()
+		if err != nil {
+			log.Printf("Warning: failed to list volume attachments for server %s: %v", s.ID, err)
+			continue
+		}
+		attachments, err := volumeattach.ExtractVolumeAttachments(attachPager)
+		if err != nil {
+			log.Printf("Warning: failed to extract volume attachments for server %s: %v", s.ID, err)
+			continue
+		}
+		for _, att := range attachments {
+			if _, err := stmtSrvVol.ExecContext(ctx, s.ID, att.VolumeID, att.Device); err != nil {
+				log.Printf("Warning: failed to insert server-volume mapping for server %s, volume %s: %v", s.ID, att.VolumeID, err)
+			} else {
+				serverVolCount++
+			}
+		}
+	}
+	log.Printf("Inserted %d server-volume mappings", serverVolCount)
 
 	log.Println("Committing transaction")
 	if err := tx.Commit(); err != nil {
