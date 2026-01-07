@@ -66,4 +66,15 @@ func (c *Config) applyDefaults() {
 	if c.OpenStack.WorkerTimeout == 0 {
 		c.OpenStack.WorkerTimeout = 30 * time.Second
 	}
+
+	// Default table names for new tables (backward compatibility)
+	if c.Tables.Volumes == "" {
+		c.Tables.Volumes = "os_volumes"
+	}
+	if c.Tables.ServerSecGrps == "" {
+		c.Tables.ServerSecGrps = "os_server_secgrps"
+	}
+	if c.Tables.ServerVolumes == "" {
+		c.Tables.ServerVolumes = "os_server_volumes"
+	}
 }
