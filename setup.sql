@@ -27,6 +27,7 @@ CREATE TABLE os_servers (
     image_name  TEXT,
     flavor_id   TEXT,
     flavor_name TEXT,
+    metadata    TEXT,
     FOREIGN KEY (project_id) REFERENCES os_project_names(project_id) ON DELETE CASCADE
 );
 
@@ -63,21 +64,21 @@ INSERT INTO os_project_names (project_id, project_name) VALUES
     ('proj-7', 'hc_eta_project');
 
 -- Insert dummy data into servers with IPv4 addresses and new fields
-INSERT INTO os_servers (server_id, server_name, project_id, ipv4_addr, status, image_id, image_name, flavor_id, flavor_name) VALUES
-    ('srv-101', 'sa1x-server-p1', 'proj-1', '192.168.1.101', 'ACTIVE', 'img-001', 'ubuntu-22.04-lts', 'flv-medium', 'm1.medium'),
-    ('srv-102', 'sa1x-server-p2', 'proj-1', '192.168.1.102', 'ACTIVE', 'img-001', 'ubuntu-22.04-lts', 'flv-small', 'm1.small'),
-    ('srv-103', 'sa1x-server-p3', 'proj-2', '192.168.2.103', 'ACTIVE', 'img-002', 'centos-8-stream', 'flv-large', 'm1.large'),
-    ('srv-104', 'sa1x-server-p4', 'proj-2', '192.168.2.104', 'SHUTOFF', 'img-002', 'centos-8-stream', 'flv-medium', 'm1.medium'),
-    ('srv-105', 'sa1x-server-p5', 'proj-3', '192.168.3.105', 'ACTIVE', 'img-003', 'debian-11', 'flv-small', 'm1.small'),
-    ('srv-106', 'sa1x-server-p6', 'proj-3', '192.168.3.106', 'ACTIVE', 'img-003', 'debian-11', 'flv-small', 'm1.small'),
-    ('srv-107', 'sa1x-server-p7', 'proj-4', '192.168.4.107', 'ACTIVE', 'img-004', 'rocky-9', 'flv-xlarge', 'm1.xlarge'),
-    ('srv-108', 'sa1x-server-p8', 'proj-4', '192.168.4.108', 'BUILD', 'img-001', 'ubuntu-22.04-lts', 'flv-medium', 'm1.medium'),
-    ('srv-109', 'sa1x-server-p9', 'proj-5', '192.168.5.109', 'ACTIVE', 'img-005', 'windows-2022', 'flv-large', 'm1.large'),
-    ('srv-110', 'sa1x-server-p10', 'proj-5', '192.168.5.110', 'ERROR', 'img-001', 'ubuntu-22.04-lts', 'flv-small', 'm1.small'),
-    ('srv-111', 'sa1x-server-p11', 'proj-6', '192.168.6.111', 'ACTIVE', 'img-001', 'ubuntu-22.04-lts', 'flv-medium', 'm1.medium'),
-    ('srv-112', 'sa1x-server-p12', 'proj-6', '192.168.6.112', 'ACTIVE', 'img-002', 'centos-8-stream', 'flv-medium', 'm1.medium'),
-    ('srv-113', 'sa1x-server-p13', 'proj-7', '192.168.7.113', 'SUSPENDED', 'img-003', 'debian-11', 'flv-large', 'm1.large'),
-    ('srv-114', 'sa1x-server-p14', 'proj-7', '192.168.7.114', 'ACTIVE', 'img-004', 'rocky-9', 'flv-small', 'm1.small');
+INSERT INTO os_servers (server_id, server_name, project_id, ipv4_addr, status, image_id, image_name, flavor_id, flavor_name, metadata) VALUES
+    ('srv-101', 'sa1x-server-p1', 'proj-1', '192.168.1.101', 'ACTIVE', 'img-001', 'ubuntu-22.04-lts', 'flv-medium', 'm1.medium', '{"environment":"production","team":"platform","cost_center":"CC-1234"}'),
+    ('srv-102', 'sa1x-server-p2', 'proj-1', '192.168.1.102', 'ACTIVE', 'img-001', 'ubuntu-22.04-lts', 'flv-small', 'm1.small', '{"environment":"staging","team":"platform"}'),
+    ('srv-103', 'sa1x-server-p3', 'proj-2', '192.168.2.103', 'ACTIVE', 'img-002', 'centos-8-stream', 'flv-large', 'm1.large', '{"environment":"production","application":"database","backup":"daily"}'),
+    ('srv-104', 'sa1x-server-p4', 'proj-2', '192.168.2.104', 'SHUTOFF', 'img-002', 'centos-8-stream', 'flv-medium', 'm1.medium', '{"environment":"development"}'),
+    ('srv-105', 'sa1x-server-p5', 'proj-3', '192.168.3.105', 'ACTIVE', 'img-003', 'debian-11', 'flv-small', 'm1.small', NULL),
+    ('srv-106', 'sa1x-server-p6', 'proj-3', '192.168.3.106', 'ACTIVE', 'img-003', 'debian-11', 'flv-small', 'm1.small', '{"owner":"john.doe@example.com"}'),
+    ('srv-107', 'sa1x-server-p7', 'proj-4', '192.168.4.107', 'ACTIVE', 'img-004', 'rocky-9', 'flv-xlarge', 'm1.xlarge', '{"environment":"production","tier":"high-performance","sla":"99.9"}'),
+    ('srv-108', 'sa1x-server-p8', 'proj-4', '192.168.4.108', 'BUILD', 'img-001', 'ubuntu-22.04-lts', 'flv-medium', 'm1.medium', NULL),
+    ('srv-109', 'sa1x-server-p9', 'proj-5', '192.168.5.109', 'ACTIVE', 'img-005', 'windows-2022', 'flv-large', 'm1.large', '{"os_type":"windows","license":"enterprise"}'),
+    ('srv-110', 'sa1x-server-p10', 'proj-5', '192.168.5.110', 'ERROR', 'img-001', 'ubuntu-22.04-lts', 'flv-small', 'm1.small', '{"environment":"test"}'),
+    ('srv-111', 'sa1x-server-p11', 'proj-6', '192.168.6.111', 'ACTIVE', 'img-001', 'ubuntu-22.04-lts', 'flv-medium', 'm1.medium', '{"managed_by":"terraform","version":"1.5"}'),
+    ('srv-112', 'sa1x-server-p12', 'proj-6', '192.168.6.112', 'ACTIVE', 'img-002', 'centos-8-stream', 'flv-medium', 'm1.medium', NULL),
+    ('srv-113', 'sa1x-server-p13', 'proj-7', '192.168.7.113', 'SUSPENDED', 'img-003', 'debian-11', 'flv-large', 'm1.large', '{"reason":"maintenance"}'),
+    ('srv-114', 'sa1x-server-p14', 'proj-7', '192.168.7.114', 'ACTIVE', 'img-004', 'rocky-9', 'flv-small', 'm1.small', '{"project":"analytics","department":"data-science"}');
 
 -- Insert dummy data into security groups (multi-tier architecture)
 INSERT INTO os_security_groups (secgrp_id, secgrp_name, project_id) VALUES

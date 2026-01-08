@@ -4,6 +4,7 @@ package openstack
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"sync"
@@ -289,7 +290,7 @@ func SyncAll(sqlDB *sql.DB, cfg *config.Config) error {
 	defer stmtPrj.Close()
 
 	stmtSrv, err := tx.PrepareContext(ctx,
-		"INSERT INTO "+cfg.Tables.Servers+"(server_id, server_name, project_id, ipv4_addr, status, image_id, image_name, flavor_id, flavor_name) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)")
+		"INSERT INTO "+cfg.Tables.Servers+"(server_id, server_name, project_id, ipv4_addr, status, image_id, image_name, flavor_id, flavor_name, metadata) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
 	if err != nil {
 		return fmt.Errorf("failed to prepare servers statement: %w", err)
 	}
@@ -388,8 +389,19 @@ func SyncAll(sqlDB *sql.DB, cfg *config.Config) error {
 			}
 		}
 
+		// Serialize metadata to JSON
+		var metadataJSON string
+		if len(s.Metadata) > 0 {
+			metadataBytes, err := json.Marshal(s.Metadata)
+			if err != nil {
+				log.Printf("Warning: failed to serialize metadata for server %s: %v", s.ID, err)
+			} else {
+				metadataJSON = string(metadataBytes)
+			}
+		}
+
 		if _, err := stmtSrv.ExecContext(ctx, s.ID, s.Name, s.TenantID, ipv4Addr,
-			s.Status, imageID, imageName, flavorID, flavorName); err != nil {
+			s.Status, imageID, imageName, flavorID, flavorName, metadataJSON); err != nil {
 			return fmt.Errorf("failed to insert server %s (%s) at index %d: %w", s.Name, s.ID, i, err)
 		}
 

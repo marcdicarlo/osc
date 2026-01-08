@@ -52,6 +52,7 @@ func MigrateSchema(ctx context.Context, db *sql.DB, cfg *config.Config) error {
 			image_name  TEXT,
 			flavor_id   TEXT,
 			flavor_name TEXT,
+			metadata    TEXT,
 			FOREIGN KEY(project_id) REFERENCES ` + cfg.Tables.Projects + `(project_id) ON DELETE CASCADE
 		)`,
 		`CREATE TABLE IF NOT EXISTS ` + cfg.Tables.SecGrps + ` (
@@ -114,6 +115,7 @@ func MigrateSchema(ctx context.Context, db *sql.DB, cfg *config.Config) error {
 		{"image_name", "TEXT"},
 		{"flavor_id", "TEXT"},
 		{"flavor_name", "TEXT"},
+		{"metadata", "TEXT"},
 	}
 	for _, col := range serverColumns {
 		if err := addColumnIfNotExists(ctx, db, cfg.Tables.Servers, col.name, col.colType); err != nil {

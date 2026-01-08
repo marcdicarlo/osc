@@ -70,6 +70,7 @@ type ServerDetail struct {
 	ImageName      string
 	FlavorID       string
 	FlavorName     string
+	Metadata       map[string]string
 	SecurityGroups []SecurityGroupInfo
 	Volumes        []VolumeInfo
 }
@@ -103,7 +104,8 @@ func ShowServer(database *sql.DB, cfg *config.Config, serverName string) error {
 	query := `SELECT s.server_id, s.server_name, s.project_id, p.project_name,
                      COALESCE(s.ipv4_addr, ''), COALESCE(s.status, ''),
                      COALESCE(s.image_id, ''), COALESCE(s.image_name, ''),
-                     COALESCE(s.flavor_id, ''), COALESCE(s.flavor_name, '')
+                     COALESCE(s.flavor_id, ''), COALESCE(s.flavor_name, ''),
+                     COALESCE(s.metadata, '')
               FROM ` + cfg.Tables.Servers + ` s
               JOIN ` + cfg.Tables.Projects + ` p USING (project_id)
               WHERE s.server_name = ?`
@@ -125,9 +127,17 @@ func ShowServer(database *sql.DB, cfg *config.Config, serverName string) error {
 	var servers []ServerDetail
 	for rows.Next() {
 		var srv ServerDetail
+		var metadataJSON string
 		if err := rows.Scan(&srv.ServerID, &srv.ServerName, &srv.ProjectID, &srv.ProjectName,
-			&srv.IPv4Addr, &srv.Status, &srv.ImageID, &srv.ImageName, &srv.FlavorID, &srv.FlavorName); err != nil {
+			&srv.IPv4Addr, &srv.Status, &srv.ImageID, &srv.ImageName, &srv.FlavorID, &srv.FlavorName,
+			&metadataJSON); err != nil {
 			return err
+		}
+		// Deserialize metadata from JSON
+		if metadataJSON != "" {
+			if err := json.Unmarshal([]byte(metadataJSON), &srv.Metadata); err != nil {
+				log.Printf("Warning: failed to parse metadata for server %s: %v", srv.ServerID, err)
+			}
 		}
 		servers = append(servers, srv)
 	}
@@ -219,17 +229,18 @@ func outputServerDetails(servers []ServerDetail) error {
 
 // ServerJSON is the JSON output structure for a server
 type ServerJSON struct {
-	Server         string   `json:"server"`
-	ServerID       string   `json:"server_id"`
-	Status         string   `json:"status"`
-	ProjectID      string   `json:"project_id"`
-	ProjectName    string   `json:"project_name"`
-	IPv4Addr       string   `json:"ipv4_addr"`
-	ImageID        string   `json:"image_id"`
-	ImageName      string   `json:"image_name"`
-	FlavorID       string   `json:"flavor_id"`
-	FlavorName     string   `json:"flavor_name"`
-	SecurityGroups []string `json:"security_groups"`
+	Server         string            `json:"server"`
+	ServerID       string            `json:"server_id"`
+	Status         string            `json:"status"`
+	ProjectID      string            `json:"project_id"`
+	ProjectName    string            `json:"project_name"`
+	IPv4Addr       string            `json:"ipv4_addr"`
+	ImageID        string            `json:"image_id"`
+	ImageName      string            `json:"image_name"`
+	FlavorID       string            `json:"flavor_id"`
+	FlavorName     string            `json:"flavor_name"`
+	Metadata       map[string]string `json:"metadata,omitempty"`
+	SecurityGroups []string          `json:"security_groups"`
 }
 
 func outputServerJSON(servers []ServerDetail) error {
@@ -246,6 +257,7 @@ func outputServerJSON(servers []ServerDetail) error {
 			ImageName:      srv.ImageName,
 			FlavorID:       srv.FlavorID,
 			FlavorName:     srv.FlavorName,
+			Metadata:       srv.Metadata,
 			SecurityGroups: make([]string, 0, len(srv.SecurityGroups)),
 		}
 		for _, sg := range srv.SecurityGroups {
@@ -265,7 +277,7 @@ func outputServerCSV(servers []ServerDetail) error {
 
 	// Write header
 	if err := writer.Write([]string{"server", "server_id", "status", "project_id", "project_name",
-		"ipv4_addr", "image_id", "image_name", "flavor_id", "flavor_name", "security_groups"}); err != nil {
+		"ipv4_addr", "image_id", "image_name", "flavor_id", "flavor_name", "metadata", "security_groups"}); err != nil {
 		return err
 	}
 
@@ -274,6 +286,16 @@ func outputServerCSV(servers []ServerDetail) error {
 		for _, sg := range srv.SecurityGroups {
 			sgList = append(sgList, fmt.Sprintf("%s (%s)", sg.ID, sg.Name))
 		}
+
+		// Serialize metadata to JSON for CSV
+		metadataStr := ""
+		if len(srv.Metadata) > 0 {
+			metadataBytes, err := json.Marshal(srv.Metadata)
+			if err == nil {
+				metadataStr = string(metadataBytes)
+			}
+		}
+
 		if err := writer.Write([]string{
 			srv.ServerName,
 			srv.ServerID,
@@ -285,6 +307,7 @@ func outputServerCSV(servers []ServerDetail) error {
 			srv.ImageName,
 			srv.FlavorID,
 			srv.FlavorName,
+			metadataStr,
 			strings.Join(sgList, ", "),
 		}); err != nil {
 			return err
@@ -323,6 +346,16 @@ func outputServerTable(servers []ServerDetail) error {
 				fmt.Printf("  Flavor:       %s\n", srv.FlavorName)
 			} else {
 				fmt.Printf("  Flavor:       %s\n", srv.FlavorID)
+			}
+		}
+
+		// Metadata
+		fmt.Printf("\n  Metadata:\n")
+		if len(srv.Metadata) == 0 {
+			fmt.Printf("    (none)\n")
+		} else {
+			for key, value := range srv.Metadata {
+				fmt.Printf("    %s: %s\n", key, value)
 			}
 		}
 
