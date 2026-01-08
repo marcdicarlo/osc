@@ -14,6 +14,7 @@ var showCmd = &cobra.Command{
 
 Available resources:
     server  Show detailed information for a specific server
+    secgrp  Show detailed information for a specific security group
 
 Examples:
 
@@ -23,9 +24,12 @@ osc show server my-server-name
 # show server details in a specific project
 osc show server my-server-name -p prod
 
-# show server details in different formats
+# show security group details
+osc show secgrp web-servers
+
+# show details in different formats
 osc show server my-server-name -o json
-osc show server my-server-name -o csv`,
+osc show secgrp web-servers -o csv`,
 	Run: func(cmd *cobra.Command, args []string) {
 		log.Fatal("Show must be called with a subcommand")
 	},
