@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"strings"
 )
 
 // JSONFormatter implements the Formatter interface for JSON output
@@ -21,9 +22,10 @@ type JSONOutput struct {
 
 // JSONRow represents a row of data with type information
 type JSONRow struct {
-	Type       string            `json:"type,omitempty"`
-	Fields     map[string]string `json:"fields"`
-	RuleFields *JSONRuleFields   `json:"rule_fields,omitempty"`
+	Type           string            `json:"type,omitempty"`
+	Fields         map[string]string `json:"fields"`
+	SecurityGroups []string          `json:"security_groups,omitempty"`
+	RuleFields     *JSONRuleFields   `json:"rule_fields,omitempty"`
 }
 
 // JSONRuleFields contains security group rule specific fields
@@ -70,8 +72,16 @@ func (f *JSONFormatter) Format(data *OutputData) error {
 		return fmt.Errorf("no headers provided")
 	}
 
+	// Filter out "Security Groups" from headers if present (it becomes a separate field)
+	headers := make([]string, 0, len(data.Headers))
+	for _, h := range data.Headers {
+		if h != "Security Groups" {
+			headers = append(headers, h)
+		}
+	}
+
 	output := JSONOutput{
-		Headers: data.Headers,
+		Headers: headers,
 		Data:    make([]JSONRow, 0, len(data.Rows)),
 	}
 
@@ -87,10 +97,13 @@ func (f *JSONFormatter) Format(data *OutputData) error {
 
 	// Check if this is security group output with Resource Type column
 	resourceTypeIndex := -1
+	securityGroupsIndex := -1
 	for i, h := range data.Headers {
 		if h == "Resource Type" {
 			resourceTypeIndex = i
-			break
+		}
+		if h == "Security Groups" {
+			securityGroupsIndex = i
 		}
 	}
 	hasRules := resourceTypeIndex >= 0 && len(data.Headers) > 5
@@ -110,6 +123,17 @@ func (f *JSONFormatter) Format(data *OutputData) error {
 		for i := 0; i < len(data.Headers) && i < len(row); i++ {
 			// For security group output with rules, only include first 5 basic fields
 			if hasRules && i >= 5 {
+				continue
+			}
+			// Handle Security Groups column specially - convert to list
+			if i == securityGroupsIndex {
+				if row[i] != "" {
+					// Split comma-separated security groups into a list
+					groups := strings.Split(row[i], ", ")
+					jsonRow.SecurityGroups = groups
+				} else {
+					jsonRow.SecurityGroups = []string{}
+				}
 				continue
 			}
 			if row[i] == "" {
