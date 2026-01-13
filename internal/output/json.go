@@ -85,8 +85,17 @@ func (f *JSONFormatter) Format(data *OutputData) error {
 		}
 	}
 
+	// Check if this is security group output with Resource Type column
+	resourceTypeIndex := -1
+	for i, h := range data.Headers {
+		if h == "Resource Type" {
+			resourceTypeIndex = i
+			break
+		}
+	}
+	hasRules := resourceTypeIndex >= 0 && len(data.Headers) > 5
+
 	// Convert rows to structured JSON format
-	hasRules := len(data.Headers) > 5 // Check if we have rule fields
 	for rowIndex, row := range data.Rows {
 		if len(row) < len(data.Headers) {
 			log.Printf("Warning: Row %d has fewer fields (%d) than headers (%d)", rowIndex, len(row), len(data.Headers))
@@ -97,21 +106,22 @@ func (f *JSONFormatter) Format(data *OutputData) error {
 			Fields: make(map[string]string),
 		}
 
-		// Add basic fields with validation
+		// Add all fields to the Fields map
 		for i := 0; i < len(data.Headers) && i < len(row); i++ {
-			if i < 5 { // Basic fields
-				if row[i] == "" {
-					// Use a placeholder for empty values
-					jsonRow.Fields[data.Headers[i]] = "n/a"
-				} else {
-					jsonRow.Fields[data.Headers[i]] = row[i]
-				}
+			// For security group output with rules, only include first 5 basic fields
+			if hasRules && i >= 5 {
+				continue
+			}
+			if row[i] == "" {
+				jsonRow.Fields[data.Headers[i]] = "n/a"
+			} else {
+				jsonRow.Fields[data.Headers[i]] = row[i]
 			}
 		}
 
-		// Set the type from the Resource Type field if available
-		if len(row) > 4 {
-			jsonRow.Type = row[4] // Resource Type is always at index 4
+		// Set the type from the Resource Type field if this is security group output
+		if resourceTypeIndex >= 0 && len(row) > resourceTypeIndex {
+			jsonRow.Type = row[resourceTypeIndex]
 		}
 
 		// Add rule fields if present and this is a security-group-rule row
