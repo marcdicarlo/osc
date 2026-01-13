@@ -17,6 +17,7 @@ import (
 )
 
 var serversFullOutput bool
+var serversShowRules bool
 
 // serversCmd represents the servers command
 var serversCmd = &cobra.Command{
@@ -29,7 +30,10 @@ Examples:
 # list all openstack servers
 osc list servers
 
-# list servers with security groups
+# list servers with security group names
+osc list servers --rules
+
+# list servers with security groups (IDs and names)
 osc list servers --full
 
 # list servers in projects containing a string
@@ -39,7 +43,7 @@ osc list servers -p "eta"     # matches: hc_zeta_project, hc_eta_project, hc_bet
 # list servers in different output formats
 osc list servers -o json
 osc list servers -o csv
-osc list servers --full -o json  # with security groups in JSON format
+osc list servers --rules -o json  # with security group names in JSON format
 `,
 	Run: func(cmd *cobra.Command, args []string) {
 		cfg, err := config.Load("config.yaml")
@@ -60,7 +64,8 @@ osc list servers --full -o json  # with security groups in JSON format
 func init() {
 	listCmd.AddCommand(serversCmd)
 	serversCmd.Flags().StringVarP(&projectFilter, "project", "p", "", "Filter servers by project name (shows projects containing this string)")
-	serversCmd.Flags().BoolVarP(&serversFullOutput, "full", "f", false, "Include security groups attached to each server")
+	serversCmd.Flags().BoolVarP(&serversShowRules, "rules", "r", false, "Include security group names attached to each server")
+	serversCmd.Flags().BoolVarP(&serversFullOutput, "full", "f", false, "Include security groups with IDs attached to each server")
 }
 
 // Servers reads and outputs server/project data.
@@ -68,12 +73,21 @@ func Servers(db *sql.DB, cfg *config.Config) error {
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.DBTimeout)
 	defer cancel()
 
-	// Build query based on --full flag
+	// Build query based on flags
 	var query string
-	if serversFullOutput {
-		// Full query with security groups using GROUP_CONCAT
+	includeSecGroups := serversShowRules || serversFullOutput
+	if includeSecGroups {
+		// Query with security groups using GROUP_CONCAT
+		var secgrpFormat string
+		if serversFullOutput {
+			// Full output: ID (name)
+			secgrpFormat = `sg.secgrp_id || ' (' || sg.secgrp_name || ')'`
+		} else {
+			// Rules output: name only
+			secgrpFormat = `sg.secgrp_name`
+		}
 		query = `SELECT s.server_name, s.server_id, p.project_name, COALESCE(s.ipv4_addr, ''),
-		         COALESCE(GROUP_CONCAT(sg.secgrp_id || ' (' || sg.secgrp_name || ')', ', '), '')
+		         COALESCE(GROUP_CONCAT(` + secgrpFormat + `, ', '), '')
 		FROM ` + cfg.Tables.Servers + ` s
 		JOIN ` + cfg.Tables.Projects + ` p USING (project_id)
 		LEFT JOIN ` + cfg.Tables.ServerSecGrps + ` ssg ON s.server_id = ssg.server_id
@@ -97,7 +111,7 @@ func Servers(db *sql.DB, cfg *config.Config) error {
 	// Collect the data
 	var data [][]string
 	for rows.Next() {
-		if serversFullOutput {
+		if includeSecGroups {
 			var name, id, pname, ipv4, secgrps string
 			if err := rows.Scan(&name, &id, &pname, &ipv4, &secgrps); err != nil {
 				return err
@@ -126,9 +140,9 @@ func Servers(db *sql.DB, cfg *config.Config) error {
 		return err
 	}
 
-	// Build headers based on --full flag
+	// Build headers based on flags
 	headers := []string{"Server Name", "Server ID", "Project Name", "IPv4 Address"}
-	if serversFullOutput {
+	if includeSecGroups {
 		headers = append(headers, "Security Groups")
 	}
 
