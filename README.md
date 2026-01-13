@@ -7,6 +7,12 @@ A command-line tool that caches OpenStack resource data locally for improved que
 - Cache OpenStack resources locally (servers, security groups, etc.)
 - Fast querying of resources without hitting the OpenStack API
 - Project-based filtering and scoping
+- Detailed resource views:
+  - `show server` - Server details including status, image, flavor, volumes, metadata
+  - `show secgrp` - Security group details with rules and attached servers
+- Server listing with security groups:
+  - `--rules` flag shows security group names
+  - `--full` flag shows security group IDs and names
 - Detailed security group rule viewing:
   - Unified view of groups and rules
   - Rule details including direction, protocol, ports, and CIDR
@@ -65,11 +71,23 @@ project_filter: ""     # Comma-separated list of project names to exclude
 # List all servers
 osc list servers
 
+# List servers with security group names
+osc list servers --rules
+
+# List servers with security group IDs and names
+osc list servers --full
+
 # List all security groups
 osc list secgrps
 
 # List security groups with their rules
 osc list secgrps -r
+
+# Show detailed information for a specific server
+osc show server my-server-name
+
+# Show detailed information for a specific security group
+osc show secgrp web-servers
 
 # Filter resources by project name
 osc list servers -p "prod"
@@ -165,6 +183,60 @@ The tool supports three output formats, controlled by the `-o` or `--output` fla
    ssh-rule,sg-123,proj-123,prod-app1,security-group-rule,ingress,tcp,22,0.0.0.0/0
    ```
 
+### Servers
+
+The servers command (`osc list servers`) supports displaying security groups attached to each server:
+
+1. Basic listing:
+   ```bash
+   # List servers without security groups
+   osc list servers
+   ```
+
+2. Include security group names:
+   ```bash
+   # List servers with security group names only
+   osc list servers --rules
+   osc list servers -r
+   ```
+
+   Example output:
+   ```
+   SERVER NAME     | SERVER ID | PROJECT NAME     | IPV4 ADDRESS  | SECURITY GROUPS
+   sa1x-server-p1  | srv-101   | hc_alpha_project | 192.168.1.101 | default, web-servers
+   ```
+
+3. Include security group IDs and names:
+   ```bash
+   # Full output with IDs (useful for scripting)
+   osc list servers --full
+   osc list servers -f
+   ```
+
+   Example output:
+   ```
+   SERVER NAME     | SERVER ID | PROJECT NAME     | IPV4 ADDRESS  | SECURITY GROUPS
+   sa1x-server-p1  | srv-101   | hc_alpha_project | 192.168.1.101 | sg-1 (default), sg-2 (web-servers)
+   ```
+
+4. JSON output with security groups:
+   ```bash
+   osc list servers --rules -o json
+   ```
+
+   Security groups are output as a list:
+   ```json
+   {
+     "fields": {
+       "Server Name": "sa1x-server-p1",
+       "Server ID": "srv-101",
+       "Project Name": "hc_alpha_project",
+       "IPv4 Address": "192.168.1.101"
+     },
+     "security_groups": ["default", "web-servers"]
+   }
+   ```
+
 ### Security Groups
 
 The security groups command (`osc list secgrps`) provides a unified view of security groups and their rules:
@@ -212,6 +284,95 @@ The security groups command (`osc list secgrps`) provides a unified view of secu
 5. Resource types:
    - `security-group`: The security group itself
    - `security-group-rule`: Individual rules within a group
+
+### Show Commands
+
+The `show` commands provide detailed information about specific resources:
+
+#### Show Server
+
+Display detailed information about a specific server:
+
+```bash
+# Show server details
+osc show server my-server-name
+
+# Show server in a specific project
+osc show server my-server-name -p prod
+
+# Output in different formats
+osc show server my-server-name -o json
+osc show server my-server-name -o csv
+```
+
+Server details include:
+- Server ID, name, and project
+- Status (ACTIVE, SHUTOFF, etc.)
+- IPv4 address
+- Image ID and name
+- Flavor ID and name
+- Attached volumes
+- Metadata (key-value pairs)
+- Security groups
+
+Example table output:
+```
+Server: my-server-name
+  ID:      srv-101
+  Project: hc_alpha_project (proj-alpha)
+  Status:  ACTIVE
+  IPv4:    192.168.1.101
+  Image:   img-ubuntu-22 (Ubuntu 22.04 LTS)
+  Flavor:  flv-medium (m1.medium)
+
+  Volumes:
+    - vol-001 (boot-volume)
+
+  Metadata:
+    - environment: production
+    - owner: devops
+
+  Security Groups:
+    - sg-1 (default)
+    - sg-2 (web-servers)
+```
+
+#### Show Security Group
+
+Display detailed information about a specific security group:
+
+```bash
+# Show security group details
+osc show secgrp web-servers
+
+# Show security group in a specific project
+osc show secgrp web-servers -p prod
+
+# Output in different formats
+osc show secgrp web-servers -o json
+osc show secgrp web-servers -o csv
+```
+
+Security group details include:
+- Security group ID, name, and project
+- All rules (direction, protocol, ports, remote IP/group)
+- Servers using this security group
+
+Example table output:
+```
+Security Group: web-servers
+  ID:      sg-2
+  Project: hc_alpha_project (proj-alpha)
+
+  Rules:
+    INGRESS tcp  80    from 0.0.0.0/0
+    INGRESS tcp  443   from 0.0.0.0/0
+    EGRESS  any  any   to   any
+
+  Servers Using This Group:
+    - sa1x-server-p1 (srv-101)
+    - sa1x-server-p2 (srv-102)
+```
 
 ### Filtering and Scoping
 
