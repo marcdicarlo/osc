@@ -65,6 +65,23 @@ project_filter: ""     # Comma-separated list of project names to exclude
 
 ## Usage
 
+### Syncing Resources
+
+Before querying resources, you need to sync data from OpenStack to the local cache:
+
+```bash
+# Sync all resources from all projects
+osc sync all
+
+# Sync resources for a specific project (supports partial matching)
+osc sync project production-web
+osc sync project prod
+
+# The project name is matched case-insensitively
+# If multiple projects match, you'll be asked to be more specific
+# If one project matches, you'll see a confirmation and the sync will proceed
+```
+
 ### Basic Commands
 
 ```bash

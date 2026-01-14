@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -498,5 +499,393 @@ func SyncAll(sqlDB *sql.DB, cfg *config.Config) error {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 	log.Println("Sync completed successfully")
+	return nil
+}
+
+// findProjectByName looks up a project by name using partial matching (case-insensitive)
+// Returns error if no match or multiple matches found
+func findProjectByName(identityClient *gophercloud.ServiceClient, searchTerm string) (*projects.Project, error) {
+	allPages, err := projects.List(identityClient, nil).AllPages()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list projects: %w", err)
+	}
+
+	projectList, err := projects.ExtractProjects(allPages)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract projects: %w", err)
+	}
+
+	searchLower := strings.ToLower(searchTerm)
+	var matches []projects.Project
+
+	for _, p := range projectList {
+		if strings.Contains(strings.ToLower(p.Name), searchLower) {
+			matches = append(matches, p)
+		}
+	}
+
+	switch len(matches) {
+	case 0:
+		return nil, fmt.Errorf("no project found matching %q", searchTerm)
+	case 1:
+		// Warn if partial match (not exact)
+		if strings.ToLower(matches[0].Name) != searchLower {
+			log.Printf("⚠ Matched project %q (partial match for %q)", matches[0].Name, searchTerm)
+		}
+		return &matches[0], nil
+	default:
+		var names []string
+		for _, m := range matches {
+			names = append(names, m.Name)
+		}
+		return nil, fmt.Errorf("%q matches multiple projects:\n  - %s\nPlease specify a more precise project name",
+			searchTerm, strings.Join(names, "\n  - "))
+	}
+}
+
+// deleteProjectResources removes all cached data for a specific project
+// Foreign key CASCADE will automatically handle junction tables
+func deleteProjectResources(tx *sql.Tx, cfg *config.Config, projectID string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.DBTimeout)
+	defer cancel()
+
+	// Delete servers (CASCADE removes server_secgrps and server_volumes)
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf("DELETE FROM %s WHERE project_id = ?", cfg.Tables.Servers), projectID); err != nil {
+		return fmt.Errorf("failed to delete servers: %w", err)
+	}
+
+	// Delete security groups (CASCADE removes secgrp_rules and server_secgrps)
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf("DELETE FROM %s WHERE project_id = ?", cfg.Tables.SecGrps), projectID); err != nil {
+		return fmt.Errorf("failed to delete security groups: %w", err)
+	}
+
+	// Delete volumes (CASCADE removes server_volumes)
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf("DELETE FROM %s WHERE project_id = ?", cfg.Tables.Volumes), projectID); err != nil {
+		return fmt.Errorf("failed to delete volumes: %w", err)
+	}
+
+	return nil
+}
+
+// fetchServersByProject fetches servers for a single project
+func fetchServersByProject(computeClient *gophercloud.ServiceClient, projectID string) ([]servers.Server, error) {
+	allPages, err := servers.List(computeClient, servers.ListOpts{
+		TenantID: projectID,
+	}).AllPages()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list servers: %w", err)
+	}
+
+	serverList, err := servers.ExtractServers(allPages)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract servers: %w", err)
+	}
+
+	return serverList, nil
+}
+
+// fetchSecurityGroupsByProject fetches security groups for a single project
+func fetchSecurityGroupsByProject(networkClient *gophercloud.ServiceClient, projectID string) ([]groups.SecGroup, error) {
+	allPages, err := groups.List(networkClient, groups.ListOpts{
+		TenantID: projectID,
+	}).AllPages()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list security groups: %w", err)
+	}
+
+	groupList, err := groups.ExtractGroups(allPages)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract security groups: %w", err)
+	}
+
+	return groupList, nil
+}
+
+// fetchVolumesByProject fetches volumes for a single project
+func fetchVolumesByProject(blockStorageClient *gophercloud.ServiceClient, projectID string) ([]volumes.Volume, error) {
+	allPages, err := volumes.List(blockStorageClient, volumes.ListOpts{
+		TenantID: projectID,
+	}).AllPages()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list volumes: %w", err)
+	}
+
+	volumeList, err := volumes.ExtractVolumes(allPages)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract volumes: %w", err)
+	}
+
+	return volumeList, nil
+}
+
+// SyncProject syncs resources for a specific project
+func SyncProject(sqlDB *sql.DB, cfg *config.Config, projectName string) error {
+	log.Printf("Starting project sync for: %s", projectName)
+
+	// First verify OpenStack connectivity before making any database changes
+	computeClient, identityClient, networkClient, blockStorageClient, err := initOpenStackClients(cfg)
+	if err != nil {
+		return fmt.Errorf("OpenStack authentication failed: %w", err)
+	}
+	log.Println("Successfully authenticated with OpenStack services")
+
+	// Find the project by name (with partial matching)
+	targetProject, err := findProjectByName(identityClient, projectName)
+	if err != nil {
+		return err
+	}
+	log.Printf("Found project: %s (ID: %s)", targetProject.Name, targetProject.ID)
+
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.DBTimeout)
+	defer cancel()
+
+	// Start transaction for database operations
+	tx, err := sqlDB.BeginTx(ctx, &sql.TxOptions{
+		Isolation: sql.LevelReadCommitted,
+		ReadOnly:  false,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
+			log.Printf("Warning: failed to rollback transaction: %v", err)
+		}
+	}()
+
+	// Delete existing data for this project (CASCADE handles junction tables)
+	log.Printf("Deleting existing data for project %s", targetProject.Name)
+	if err := deleteProjectResources(tx, cfg, targetProject.ID); err != nil {
+		return fmt.Errorf("failed to delete project resources: %w", err)
+	}
+
+	// Fetch servers for this project
+	log.Printf("Fetching servers for project %s", targetProject.Name)
+	srvList, err := fetchServersByProject(computeClient, targetProject.ID)
+	if err != nil {
+		return err
+	}
+	log.Printf("Found %d servers", len(srvList))
+
+	// Fetch security groups for this project
+	log.Printf("Fetching security groups for project %s", targetProject.Name)
+	sgList, err := fetchSecurityGroupsByProject(networkClient, targetProject.ID)
+	if err != nil {
+		return err
+	}
+	log.Printf("Found %d security groups", len(sgList))
+
+	// Fetch volumes for this project
+	log.Printf("Fetching volumes for project %s", targetProject.Name)
+	volList, err := fetchVolumesByProject(blockStorageClient, targetProject.ID)
+	if err != nil {
+		return err
+	}
+	log.Printf("Found %d volumes", len(volList))
+
+	// Build a map of security group name -> ID for server-secgrp lookups
+	sgNameToID := make(map[string]string)
+	for _, sg := range sgList {
+		sgNameToID[sg.Name] = sg.ID
+	}
+
+	// Prepare statements
+	log.Println("Preparing statements")
+	stmtPrj, err := tx.PrepareContext(ctx,
+		"INSERT OR REPLACE INTO "+cfg.Tables.Projects+"(project_id, project_name) VALUES(?, ?)")
+	if err != nil {
+		return fmt.Errorf("failed to prepare projects statement: %w", err)
+	}
+	defer stmtPrj.Close()
+
+	stmtSrv, err := tx.PrepareContext(ctx,
+		"INSERT INTO "+cfg.Tables.Servers+"(server_id, server_name, project_id, ipv4_addr, status, image_id, image_name, flavor_id, flavor_name, metadata) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+	if err != nil {
+		return fmt.Errorf("failed to prepare servers statement: %w", err)
+	}
+	defer stmtSrv.Close()
+
+	stmtSG, err := tx.PrepareContext(ctx,
+		"INSERT INTO "+cfg.Tables.SecGrps+"(secgrp_id, secgrp_name, project_id) VALUES(?, ?, ?)")
+	if err != nil {
+		return fmt.Errorf("failed to prepare security groups statement: %w", err)
+	}
+	defer stmtSG.Close()
+
+	stmtSGRule, err := tx.PrepareContext(ctx,
+		"INSERT INTO "+cfg.Tables.SecGrpRules+"(rule_id, secgrp_id, direction, ethertype, protocol, port_range_min, port_range_max, remote_ip_prefix, remote_group_id) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)")
+	if err != nil {
+		return fmt.Errorf("failed to prepare security group rules statement: %w", err)
+	}
+	defer stmtSGRule.Close()
+
+	stmtVol, err := tx.PrepareContext(ctx,
+		"INSERT INTO "+cfg.Tables.Volumes+"(volume_id, volume_name, size_gb, volume_type, project_id) VALUES(?, ?, ?, ?, ?)")
+	if err != nil {
+		return fmt.Errorf("failed to prepare volumes statement: %w", err)
+	}
+	defer stmtVol.Close()
+
+	stmtSrvSG, err := tx.PrepareContext(ctx,
+		"INSERT OR IGNORE INTO "+cfg.Tables.ServerSecGrps+"(server_id, secgrp_id) VALUES(?, ?)")
+	if err != nil {
+		return fmt.Errorf("failed to prepare server security groups statement: %w", err)
+	}
+	defer stmtSrvSG.Close()
+
+	stmtSrvVol, err := tx.PrepareContext(ctx,
+		"INSERT OR IGNORE INTO "+cfg.Tables.ServerVolumes+"(server_id, volume_id, device_path) VALUES(?, ?, ?)")
+	if err != nil {
+		return fmt.Errorf("failed to prepare server volumes statement: %w", err)
+	}
+	defer stmtSrvVol.Close()
+
+	// Insert project (UPSERT to update if already exists)
+	log.Printf("Inserting/updating project record for %s", targetProject.Name)
+	if _, err := stmtPrj.ExecContext(ctx, targetProject.ID, targetProject.Name); err != nil {
+		return fmt.Errorf("failed to insert project: %w", err)
+	}
+
+	// Insert servers
+	log.Printf("Inserting %d servers", len(srvList))
+	for i, s := range srvList {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("context cancelled during server insertion: %w", err)
+		}
+
+		// Get the first IPv4 address from the server's addresses
+		var ipv4Addr string
+		for _, addresses := range s.Addresses {
+			for _, addr := range addresses.([]interface{}) {
+				if address, ok := addr.(map[string]interface{}); ok {
+					if address["version"].(float64) == 4 {
+						ipv4Addr = address["addr"].(string)
+						break
+					}
+				}
+			}
+			if ipv4Addr != "" {
+				break
+			}
+		}
+
+		// Extract image info
+		var imageID, imageName string
+		if s.Image != nil {
+			if id, ok := s.Image["id"].(string); ok {
+				imageID = id
+			}
+			if name, ok := s.Image["name"].(string); ok {
+				imageName = name
+			}
+		}
+
+		// Extract flavor info
+		var flavorID, flavorName string
+		if s.Flavor != nil {
+			if id, ok := s.Flavor["id"].(string); ok {
+				flavorID = id
+			}
+			if name, ok := s.Flavor["name"].(string); ok {
+				flavorName = name
+			}
+		}
+
+		// Serialize metadata to JSON
+		var metadataJSON string
+		if s.Metadata != nil && len(s.Metadata) > 0 {
+			if jsonBytes, err := json.Marshal(s.Metadata); err == nil {
+				metadataJSON = string(jsonBytes)
+			}
+		}
+
+		if _, err := stmtSrv.ExecContext(ctx, s.ID, s.Name, s.TenantID, ipv4Addr, s.Status, imageID, imageName, flavorID, flavorName, metadataJSON); err != nil {
+			return fmt.Errorf("failed to insert server %s (%s) at index %d: %w", s.Name, s.ID, i, err)
+		}
+		if (i+1)%100 == 0 {
+			log.Printf("Inserted %d/%d servers", i+1, len(srvList))
+		}
+	}
+	log.Printf("Inserted %d servers", len(srvList))
+
+	// Insert security groups and rules
+	log.Printf("Inserting %d security groups", len(sgList))
+	ruleCount := 0
+	for i, sg := range sgList {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("context cancelled during security group insertion: %w", err)
+		}
+
+		if _, err := stmtSG.ExecContext(ctx, sg.ID, sg.Name, sg.ProjectID); err != nil {
+			return fmt.Errorf("failed to insert security group %s (%s) at index %d: %w", sg.Name, sg.ID, i, err)
+		}
+
+		// Insert rules for this security group
+		for _, rule := range sg.Rules {
+			if _, err := stmtSGRule.ExecContext(ctx, rule.ID, sg.ID, rule.Direction, rule.EtherType,
+				rule.Protocol, rule.PortRangeMin, rule.PortRangeMax, rule.RemoteIPPrefix, rule.RemoteGroupID); err != nil {
+				return fmt.Errorf("failed to insert security group rule %s: %w", rule.ID, err)
+			}
+			ruleCount++
+		}
+
+		if (i+1)%10 == 0 {
+			log.Printf("Inserted %d/%d security groups", i+1, len(sgList))
+		}
+	}
+	log.Printf("Inserted %d security groups with %d rules", len(sgList), ruleCount)
+
+	// Insert volumes
+	log.Printf("Inserting %d volumes", len(volList))
+	for i, v := range volList {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("context cancelled during volume insertion: %w", err)
+		}
+		// Note: gophercloud Volume struct doesn't have ProjectID field, using targetProject.ID
+		if _, err := stmtVol.ExecContext(ctx, v.ID, v.Name, v.Size, v.VolumeType, targetProject.ID); err != nil {
+			return fmt.Errorf("failed to insert volume %s (%s) at index %d: %w", v.Name, v.ID, i, err)
+		}
+		if (i+1)%100 == 0 {
+			log.Printf("Inserted %d/%d volumes", i+1, len(volList))
+		}
+	}
+	log.Printf("Inserted %d volumes", len(volList))
+
+	// Insert server-security group mappings
+	log.Println("Inserting server-security group mappings")
+	srvSGCount := 0
+	for _, s := range srvList {
+		for _, sg := range s.SecurityGroups {
+			sgName := sg["name"].(string)
+			if sgID, ok := sgNameToID[sgName]; ok {
+				if _, err := stmtSrvSG.ExecContext(ctx, s.ID, sgID); err != nil {
+					log.Printf("Warning: failed to insert server-secgrp mapping for server %s, secgrp %s: %v", s.ID, sgName, err)
+				} else {
+					srvSGCount++
+				}
+			}
+		}
+	}
+	log.Printf("Inserted %d server-security group mappings", srvSGCount)
+
+	// Insert server-volume mappings (using AttachedVolumes from server data)
+	log.Println("Inserting server-volume mappings")
+	serverVolCount := 0
+	for _, s := range srvList {
+		for _, vol := range s.AttachedVolumes {
+			if _, err := stmtSrvVol.ExecContext(ctx, s.ID, vol.ID, ""); err != nil {
+				log.Printf("Warning: failed to insert server-volume mapping for server %s, volume %s: %v", s.ID, vol.ID, err)
+			} else {
+				serverVolCount++
+			}
+		}
+	}
+	log.Printf("Inserted %d server-volume mappings", serverVolCount)
+
+	log.Println("Committing transaction")
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	log.Printf("Sync completed successfully for project %s", targetProject.Name)
 	return nil
 }
