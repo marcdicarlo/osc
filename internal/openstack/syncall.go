@@ -486,7 +486,7 @@ func SyncAll(sqlDB *sql.DB, cfg *config.Config) error {
 		for _, vol := range s.AttachedVolumes {
 			// Note: AttachedVolume only has ID, device path is not available from this API
 			if _, err := stmtSrvVol.ExecContext(ctx, s.ID, vol.ID, ""); err != nil {
-				log.Printf("Warning: failed to insert server-volume mapping for server %s, volume %s: %v", s.ID, vol.ID, err)
+				log.Printf("Warning: skipping server-volume mapping for server %s -> volume %s: volume not found in cache (may be deleted or from another project)", s.ID, vol.ID)
 			} else {
 				serverVolCount++
 			}
@@ -720,7 +720,7 @@ func SyncProject(sqlDB *sql.DB, cfg *config.Config, projectName string) error {
 	defer stmtSGRule.Close()
 
 	stmtVol, err := tx.PrepareContext(ctx,
-		"INSERT INTO "+cfg.Tables.Volumes+"(volume_id, volume_name, size_gb, volume_type, project_id) VALUES(?, ?, ?, ?, ?)")
+		"INSERT OR REPLACE INTO "+cfg.Tables.Volumes+"(volume_id, volume_name, size_gb, volume_type, project_id) VALUES(?, ?, ?, ?, ?)")
 	if err != nil {
 		return fmt.Errorf("failed to prepare volumes statement: %w", err)
 	}
@@ -874,7 +874,7 @@ func SyncProject(sqlDB *sql.DB, cfg *config.Config, projectName string) error {
 	for _, s := range srvList {
 		for _, vol := range s.AttachedVolumes {
 			if _, err := stmtSrvVol.ExecContext(ctx, s.ID, vol.ID, ""); err != nil {
-				log.Printf("Warning: failed to insert server-volume mapping for server %s, volume %s: %v", s.ID, vol.ID, err)
+				log.Printf("Warning: skipping server-volume mapping for server %s -> volume %s: volume not found in cache (may be deleted or from another project)", s.ID, vol.ID)
 			} else {
 				serverVolCount++
 			}
