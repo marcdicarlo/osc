@@ -101,6 +101,7 @@ func Secgrps(db *sql.DB, cfg *config.Config) error {
 		query = `SELECT
 			s.secgrp_name as name,
 			s.secgrp_id as id,
+			s.secgrp_id as parent_id,
 			s.project_id,
 			p.project_name,
 			'security-group' as resource_type,
@@ -116,7 +117,8 @@ func Secgrps(db *sql.DB, cfg *config.Config) error {
 		UNION ALL
 		SELECT
 			r.rule_id as name,
-			r.secgrp_id as id,
+			r.rule_id as id,
+			r.secgrp_id as parent_id,
 			s.project_id,
 			p.project_name,
 			'security-group-rule' as resource_type,
@@ -138,7 +140,7 @@ func Secgrps(db *sql.DB, cfg *config.Config) error {
 		`
 		// Add ORDER BY clause based on sort flag
 		if sortGrouped {
-			query += "ORDER BY id, resource_type, name;"
+			query += "ORDER BY parent_id, resource_type, name;"
 		} else {
 			query += "ORDER BY resource_type DESC, name;"
 		}
@@ -147,6 +149,7 @@ func Secgrps(db *sql.DB, cfg *config.Config) error {
 		query = `SELECT
 			s.secgrp_name as name,
 			s.secgrp_id as id,
+			s.secgrp_id as parent_id,
 			s.project_id,
 			p.project_name,
 			'security-group' as resource_type,
@@ -159,7 +162,8 @@ func Secgrps(db *sql.DB, cfg *config.Config) error {
 		UNION ALL
 		SELECT
 			r.rule_id as name,
-			r.secgrp_id as id,
+			r.rule_id as id,
+			r.secgrp_id as parent_id,
 			s.project_id,
 			p.project_name,
 			'security-group-rule' as resource_type,
@@ -177,7 +181,7 @@ func Secgrps(db *sql.DB, cfg *config.Config) error {
 		`
 		// Add ORDER BY clause based on sort flag
 		if sortGrouped {
-			query += "ORDER BY id, resource_type, name;"
+			query += "ORDER BY parent_id, resource_type, name;"
 		} else {
 			query += "ORDER BY resource_type DESC, name;"
 		}
@@ -207,14 +211,14 @@ func Secgrps(db *sql.DB, cfg *config.Config) error {
 	// Collect the data
 	var data [][]string
 	for rows.Next() {
-		var name, id, pid, pname, rtype, direction, protocol, portRange, remoteIP string
+		var name, id, parentID, pid, pname, rtype, direction, protocol, portRange, remoteIP string
 		var ethertype, remoteGroupID, remoteGroupName string
 
 		if rules && fullOutput {
-			if err := rows.Scan(&name, &id, &pid, &pname, &rtype, &direction, &protocol, &portRange, &remoteIP, &ethertype, &remoteGroupID, &remoteGroupName); err != nil {
+			if err := rows.Scan(&name, &id, &parentID, &pid, &pname, &rtype, &direction, &protocol, &portRange, &remoteIP, &ethertype, &remoteGroupID, &remoteGroupName); err != nil {
 				return err
 			}
-			row := []string{name, id, pid, pname, rtype}
+			row := []string{name, id, parentID, pid, pname, rtype}
 			row = append(row, direction, protocol, portRange, remoteIP, ethertype)
 			// Combine remote_group_id and remote_group_name for display
 			if remoteGroupID != "" && remoteGroupName != "" {
@@ -225,13 +229,20 @@ func Secgrps(db *sql.DB, cfg *config.Config) error {
 				row = append(row, "")
 			}
 			data = append(data, row)
+		} else if rules {
+			if err := rows.Scan(&name, &id, &parentID, &pid, &pname, &rtype, &direction, &protocol, &portRange, &remoteIP); err != nil {
+				return err
+			}
+			row := []string{name, id, parentID, pid, pname, rtype}
+			// Rule details are NEVER appended in basic rules mode (-r without --full)
+			// This mode only shows that rules exist (via resource_type), not their details
+			data = append(data, row)
 		} else {
+			// Security groups only - no parent_id column
 			if err := rows.Scan(&name, &id, &pid, &pname, &rtype, &direction, &protocol, &portRange, &remoteIP); err != nil {
 				return err
 			}
 			row := []string{name, id, pid, pname, rtype}
-			// Rule details are NEVER appended in basic rules mode (-r without --full)
-			// This mode only shows that rules exist (via resource_type), not their details
 			data = append(data, row)
 		}
 	}
@@ -241,8 +252,14 @@ func Secgrps(db *sql.DB, cfg *config.Config) error {
 	}
 
 	// Apply project filtering
+	// When rules flag is set, parent_id column is added so project_name is at index 4
+	// Otherwise project_name is at index 3
+	projectNameIndex := 3
+	if rules {
+		projectNameIndex = 4
+	}
 	pf := filter.New(projectFilter, cfg)
-	filteredData, matchedProjectsMap := pf.MatchProjects(data, 3) // 3 is the index of project_name
+	filteredData, matchedProjectsMap := pf.MatchProjects(data, projectNameIndex)
 
 	// Create the output formatter
 	formatter, err := output.NewFormatter(outputFormat, os.Stdout)
@@ -251,12 +268,15 @@ func Secgrps(db *sql.DB, cfg *config.Config) error {
 	}
 
 	// Prepare output data with headers
-	headers := []string{"Name", "ID", "Project ID", "Project Name", "Resource Type"}
-	if rules && fullOutput {
-		headers = append(headers, "Direction", "Protocol", "Port Range", "Remote IP", "Ethertype", "Remote Group")
+	var headers []string
+	if rules {
+		headers = []string{"Name", "ID", "Parent ID", "Project ID", "Project Name", "Resource Type"}
+		if fullOutput {
+			headers = append(headers, "Direction", "Protocol", "Port Range", "Remote IP", "Ethertype", "Remote Group")
+		}
+	} else {
+		headers = []string{"Name", "ID", "Project ID", "Project Name", "Resource Type"}
 	}
-	// Note: When rules=true but fullOutput=false, we only use the base 5 headers
-	// Rule details are not shown in basic rules mode
 	outputData := output.NewOutputData(headers, filteredData)
 
 	// Add filtering metadata if filtering was applied

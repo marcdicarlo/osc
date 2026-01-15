@@ -87,6 +87,7 @@ func normalizeHeaderName(header string) string {
 		"Server ID":       "id",
 		"Project Name":    "project_name",
 		"Project ID":      "project_id",
+		"Parent ID":       "parent_id",
 		"IPv4 Address":    "ip_address",
 		"Security Groups": "security_groups",
 		"Name":            "name",
@@ -169,6 +170,7 @@ func (f *JSONFormatter) Format(data *OutputData) error {
 		jsonRow.Name = getFieldByHeader(row, headerIndices, "Name", "Server Name")
 		jsonRow.ProjectName = getFieldByHeader(row, headerIndices, "Project Name")
 		jsonRow.ProjectID = getFieldByHeader(row, headerIndices, "Project ID")
+		jsonRow.ParentID = getFieldByHeader(row, headerIndices, "Parent ID")
 		jsonRow.IPAddress = getFieldByHeader(row, headerIndices, "IPv4 Address")
 
 		// Handle Security Groups column - convert to list
@@ -189,19 +191,28 @@ func (f *JSONFormatter) Format(data *OutputData) error {
 				// Rule ID might be in Name position, keep it as ID
 			}
 
-			// Extract rule fields from positions 5-8 (or more with full output)
-			if len(row) > 8 {
+			// Extract rule fields by header index (more robust than hardcoded positions)
+			directionIdx := getIndex(headerIndices, "Direction")
+			protocolIdx := getIndex(headerIndices, "Protocol")
+			portRangeIdx := getIndex(headerIndices, "Port Range")
+			remoteIPIdx := getIndex(headerIndices, "Remote IP")
+			ethertypeIdx := getIndex(headerIndices, "Ethertype")
+			remoteGroupIdx := getIndex(headerIndices, "Remote Group")
+
+			if directionIdx >= 0 && len(row) > directionIdx {
 				jsonRow.RuleFields = &JSONRuleFields{
-					Direction: getValueOrDefault(row[5], ""),
-					Protocol:  getValueOrDefault(row[6], ""),
-					PortRange: getValueOrDefault(row[7], ""),
-					RemoteIP:  getValueOrDefault(row[8], ""),
+					Direction: getValueOrDefault(getRowValue(row, directionIdx), ""),
+					Protocol:  getValueOrDefault(getRowValue(row, protocolIdx), ""),
+					PortRange: getValueOrDefault(getRowValue(row, portRangeIdx), ""),
+					RemoteIP:  getValueOrDefault(getRowValue(row, remoteIPIdx), ""),
 				}
 
 				// Full output includes ethertype and remote_group
-				if len(row) > 10 {
-					jsonRow.RuleFields.Ethertype = getValueOrDefault(row[9], "")
-					jsonRow.RuleFields.RemoteGroup = getValueOrDefault(row[10], "")
+				if ethertypeIdx >= 0 {
+					jsonRow.RuleFields.Ethertype = getValueOrDefault(getRowValue(row, ethertypeIdx), "")
+				}
+				if remoteGroupIdx >= 0 {
+					jsonRow.RuleFields.RemoteGroup = getValueOrDefault(getRowValue(row, remoteGroupIdx), "")
 				}
 			}
 		}
@@ -261,6 +272,14 @@ func getValueOrDefault(value, defaultValue string) string {
 		return defaultValue
 	}
 	return value
+}
+
+// getRowValue safely gets a value from a row slice at the given index
+func getRowValue(row []string, idx int) string {
+	if idx >= 0 && idx < len(row) {
+		return row[idx]
+	}
+	return ""
 }
 
 // FormatSecurityGroupRules formats security group rules in JSON format
