@@ -196,13 +196,14 @@ func generateSecgrpsJSON(database *sql.DB, cfg *config.Config, projectName, outp
 	defer cancel()
 
 	// Query security groups with rules
+	// Note: parent_id is empty for security groups, secgrp_id for rules
 	query := `SELECT
-		sg.secgrp_name, sg.secgrp_id, sg.project_id, p.project_name, 'security-group' as resource_type
+		sg.secgrp_name, sg.secgrp_id, sg.project_id, p.project_name, 'security-group' as resource_type, '' as parent_id
 	FROM ` + cfg.Tables.SecGrps + ` sg
 	JOIN ` + cfg.Tables.Projects + ` p ON sg.project_id = p.project_id
 	UNION ALL
 	SELECT
-		r.rule_id, r.rule_id, sg.project_id, p.project_name, 'security-group-rule' as resource_type
+		r.rule_id, r.rule_id, sg.project_id, p.project_name, 'security-group-rule' as resource_type, sg.secgrp_id as parent_id
 	FROM ` + cfg.Tables.SecGrpRules + ` r
 	JOIN ` + cfg.Tables.SecGrps + ` sg ON r.secgrp_id = sg.secgrp_id
 	JOIN ` + cfg.Tables.Projects + ` p ON sg.project_id = p.project_id
@@ -216,11 +217,11 @@ func generateSecgrpsJSON(database *sql.DB, cfg *config.Config, projectName, outp
 
 	var data [][]string
 	for rows.Next() {
-		var name, id, projectID, pname, resourceType string
-		if err := rows.Scan(&name, &id, &projectID, &pname, &resourceType); err != nil {
+		var name, id, projectID, pname, resourceType, parentID string
+		if err := rows.Scan(&name, &id, &projectID, &pname, &resourceType, &parentID); err != nil {
 			return err
 		}
-		data = append(data, []string{name, id, projectID, pname, resourceType})
+		data = append(data, []string{name, id, projectID, pname, resourceType, parentID})
 	}
 
 	if err := rows.Err(); err != nil {
@@ -232,7 +233,7 @@ func generateSecgrpsJSON(database *sql.DB, cfg *config.Config, projectName, outp
 	filteredData, matchedProjectsMap := pf.MatchProjects(data, 3) // project_name is at index 3
 
 	if len(filteredData) == 0 {
-		return writeEmptyJSON(outputPath, []string{"Name", "ID", "Project ID", "Project Name", "Resource Type"})
+		return writeEmptyJSON(outputPath, []string{"name", "id", "project_id", "project_name", "type", "parent_id"})
 	}
 
 	// Write to file
@@ -242,7 +243,7 @@ func generateSecgrpsJSON(database *sql.DB, cfg *config.Config, projectName, outp
 		return err
 	}
 
-	headers := []string{"Name", "ID", "Project ID", "Project Name", "Resource Type"}
+	headers := []string{"name", "id", "project_id", "project_name", "type", "parent_id"}
 	outputData := output.NewOutputData(headers, filteredData)
 
 	var matchedProjects []string

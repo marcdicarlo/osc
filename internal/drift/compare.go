@@ -67,7 +67,7 @@ func compareResourcesByType(stateResources, truthResources []Resource, propCompa
 				ResourceName: stateRes.Name,
 				ResourceID:   stateRes.ID,
 				ProjectName:  stateRes.ProjectName,
-				ParentSG:     stateRes.ParentName,
+				ParentSG:     getParentSG(stateRes),
 				Status:       StatusMissingInTruth,
 				Details:      "Resource exists in Terraform state but not in OpenStack",
 			})
@@ -82,7 +82,7 @@ func compareResourcesByType(stateResources, truthResources []Resource, propCompa
 				ResourceName: truthRes.Name,
 				ResourceID:   truthRes.ID,
 				ProjectName:  truthRes.ProjectName,
-				ParentSG:     truthRes.ParentName,
+				ParentSG:     getParentSG(truthRes),
 				Status:       StatusMissingInState,
 				Details:      "Resource exists in OpenStack but not in Terraform state",
 			})
@@ -98,7 +98,7 @@ func compareResourcesByType(stateResources, truthResources []Resource, propCompa
 					ResourceName: stateRes.Name,
 					ResourceID:   stateRes.ID,
 					ProjectName:  stateRes.ProjectName,
-					ParentSG:     stateRes.ParentName,
+					ParentSG:     getParentSG(stateRes),
 					Status:       status,
 					Details:      details,
 				})
@@ -156,31 +156,22 @@ func compareSecurityGroupProperties(stateRes, truthRes *Resource) (DriftStatus, 
 }
 
 // compareSecurityGroupRuleProperties compares security group rule properties
+// Note: We only match rules by ID; we don't compare detailed properties like
+// direction, protocol, port_range, etc. since the truth file doesn't include them.
 func compareSecurityGroupRuleProperties(stateRes, truthRes *Resource) (DriftStatus, string) {
-	var changes []string
-
-	// Compare rule properties
-	stateProps := stateRes.Properties
-	truthProps := truthRes.Properties
-
-	propsToCheck := []string{"direction", "protocol", "port_range", "remote_ip_prefix", "remote_ip"}
-	for _, prop := range propsToCheck {
-		stateVal := normalizeRuleValue(getPropertyString(stateProps, prop))
-		truthVal := normalizeRuleValue(getPropertyString(truthProps, prop))
-
-		if stateVal != truthVal {
-			changes = append(changes, fmt.Sprintf("%s: %q -> %q", prop, stateVal, truthVal))
-		}
-	}
-
-	if len(changes) == 0 {
-		return "", ""
-	}
-
-	return StatusRuleChanged, strings.Join(changes, "; ")
+	// Only match by ID - don't compare rule properties
+	return "", ""
 }
 
 // Helper functions
+
+// getParentSG returns the parent security group identifier (name or ID)
+func getParentSG(res *Resource) string {
+	if res.ParentName != "" {
+		return res.ParentName
+	}
+	return res.ParentID
+}
 
 // groupByType groups resources by their type
 func groupByType(resources []Resource) map[ResourceType][]Resource {
