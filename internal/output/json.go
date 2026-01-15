@@ -21,19 +21,36 @@ type JSONOutput struct {
 }
 
 // JSONRow represents a row of data with type information
+// Fields are now at top-level with normalized lowercase names
 type JSONRow struct {
-	Type           string            `json:"type,omitempty"`
-	Fields         map[string]string `json:"fields"`
-	SecurityGroups []string          `json:"security_groups,omitempty"`
-	RuleFields     *JSONRuleFields   `json:"rule_fields,omitempty"`
+	// Common fields (normalized, lowercase)
+	Type        string   `json:"type,omitempty"`
+	ID          string   `json:"id,omitempty"`
+	Name        string   `json:"name,omitempty"`
+	ProjectName string   `json:"project_name,omitempty"`
+	ProjectID   string   `json:"project_id,omitempty"`
+	IPAddress   string   `json:"ip_address,omitempty"`
+
+	// Server-specific fields
+	SecurityGroups []string `json:"security_groups,omitempty"`
+
+	// Security group rule-specific fields
+	ParentID   string         `json:"parent_id,omitempty"`
+	ParentName string         `json:"parent_name,omitempty"`
+	RuleFields *JSONRuleFields `json:"rule_fields,omitempty"`
+
+	// Legacy: keep fields map for backward compatibility during transition
+	Fields map[string]string `json:"fields,omitempty"`
 }
 
 // JSONRuleFields contains security group rule specific fields
 type JSONRuleFields struct {
-	Direction string `json:"direction,omitempty"`
-	Protocol  string `json:"protocol,omitempty"`
-	PortRange string `json:"port_range,omitempty"`
-	RemoteIP  string `json:"remote_ip,omitempty"`
+	Direction   string `json:"direction,omitempty"`
+	Protocol    string `json:"protocol,omitempty"`
+	PortRange   string `json:"port_range,omitempty"`
+	RemoteIP    string `json:"remote_ip,omitempty"`
+	Ethertype   string `json:"ethertype,omitempty"`
+	RemoteGroup string `json:"remote_group,omitempty"`
 }
 
 // JSONMetadata contains metadata about the output
@@ -62,7 +79,35 @@ func NewJSONFormatter(w io.Writer) *JSONFormatter {
 	}
 }
 
-// Format writes the data in JSON format
+// normalizeHeaderName converts a header name to lowercase normalized form
+func normalizeHeaderName(header string) string {
+	// Map of old header names to new normalized names
+	headerMap := map[string]string{
+		"Server Name":     "name",
+		"Server ID":       "id",
+		"Project Name":    "project_name",
+		"Project ID":      "project_id",
+		"IPv4 Address":    "ip_address",
+		"Security Groups": "security_groups",
+		"Name":            "name",
+		"ID":              "id",
+		"Resource Type":   "type",
+		"Direction":       "direction",
+		"Protocol":        "protocol",
+		"Port Range":      "port_range",
+		"Remote IP":       "remote_ip",
+		"Ethertype":       "ethertype",
+		"Remote Group":    "remote_group",
+	}
+
+	if normalized, ok := headerMap[header]; ok {
+		return normalized
+	}
+	// Convert to lowercase and replace spaces with underscores
+	return strings.ToLower(strings.ReplaceAll(header, " ", "_"))
+}
+
+// Format writes the data in JSON format with normalized field names
 func (f *JSONFormatter) Format(data *OutputData) error {
 	if data == nil {
 		return fmt.Errorf("nil output data provided")
@@ -72,16 +117,16 @@ func (f *JSONFormatter) Format(data *OutputData) error {
 		return fmt.Errorf("no headers provided")
 	}
 
-	// Filter out "Security Groups" from headers if present (it becomes a separate field)
-	headers := make([]string, 0, len(data.Headers))
+	// Normalize headers (excluding Security Groups which becomes a separate field)
+	normalizedHeaders := make([]string, 0, len(data.Headers))
 	for _, h := range data.Headers {
 		if h != "Security Groups" {
-			headers = append(headers, h)
+			normalizedHeaders = append(normalizedHeaders, normalizeHeaderName(h))
 		}
 	}
 
 	output := JSONOutput{
-		Headers: headers,
+		Headers: normalizedHeaders,
 		Data:    make([]JSONRow, 0, len(data.Rows)),
 	}
 
@@ -95,17 +140,14 @@ func (f *JSONFormatter) Format(data *OutputData) error {
 		}
 	}
 
-	// Check if this is security group output with Resource Type column
-	resourceTypeIndex := -1
-	securityGroupsIndex := -1
+	// Find important column indices
+	headerIndices := make(map[string]int)
 	for i, h := range data.Headers {
-		if h == "Resource Type" {
-			resourceTypeIndex = i
-		}
-		if h == "Security Groups" {
-			securityGroupsIndex = i
-		}
+		headerIndices[h] = i
 	}
+
+	resourceTypeIndex := getIndex(headerIndices, "Resource Type")
+	securityGroupsIndex := getIndex(headerIndices, "Security Groups")
 	hasRules := resourceTypeIndex >= 0 && len(data.Headers) > 5
 
 	// Convert rows to structured JSON format
@@ -115,46 +157,65 @@ func (f *JSONFormatter) Format(data *OutputData) error {
 			continue
 		}
 
-		jsonRow := JSONRow{
-			Fields: make(map[string]string),
-		}
+		jsonRow := JSONRow{}
 
-		// Add all fields to the Fields map
-		for i := 0; i < len(data.Headers) && i < len(row); i++ {
-			// For security group output with rules, only include first 5 basic fields
-			if hasRules && i >= 5 {
-				continue
-			}
-			// Handle Security Groups column specially - convert to list
-			if i == securityGroupsIndex {
-				if row[i] != "" {
-					// Split comma-separated security groups into a list
-					groups := strings.Split(row[i], ", ")
-					jsonRow.SecurityGroups = groups
-				} else {
-					jsonRow.SecurityGroups = []string{}
-				}
-				continue
-			}
-			if row[i] == "" {
-				jsonRow.Fields[data.Headers[i]] = "n/a"
-			} else {
-				jsonRow.Fields[data.Headers[i]] = row[i]
-			}
-		}
-
-		// Set the type from the Resource Type field if this is security group output
+		// Determine the resource type first
 		if resourceTypeIndex >= 0 && len(row) > resourceTypeIndex {
 			jsonRow.Type = row[resourceTypeIndex]
 		}
 
-		// Add rule fields if present and this is a security-group-rule row
-		if hasRules && len(row) > 8 && jsonRow.Type == "security-group-rule" {
-			jsonRow.RuleFields = &JSONRuleFields{
-				Direction: getValueOrDefault(row[5], "n/a"),
-				Protocol:  getValueOrDefault(row[6], "n/a"),
-				PortRange: getValueOrDefault(row[7], "n/a"),
-				RemoteIP:  getValueOrDefault(row[8], "n/a"),
+		// Extract common fields by checking headers
+		jsonRow.ID = getFieldByHeader(row, headerIndices, "ID", "Server ID")
+		jsonRow.Name = getFieldByHeader(row, headerIndices, "Name", "Server Name")
+		jsonRow.ProjectName = getFieldByHeader(row, headerIndices, "Project Name")
+		jsonRow.ProjectID = getFieldByHeader(row, headerIndices, "Project ID")
+		jsonRow.IPAddress = getFieldByHeader(row, headerIndices, "IPv4 Address")
+
+		// Handle Security Groups column - convert to list
+		if securityGroupsIndex >= 0 && len(row) > securityGroupsIndex {
+			if row[securityGroupsIndex] != "" {
+				groups := strings.Split(row[securityGroupsIndex], ", ")
+				jsonRow.SecurityGroups = groups
+			} else {
+				jsonRow.SecurityGroups = []string{}
+			}
+		}
+
+		// Handle security group rules
+		if hasRules && jsonRow.Type == "security-group-rule" {
+			// For rules, the "Name" field often contains the rule ID
+			// and we need to extract parent info
+			if jsonRow.Name == "" && jsonRow.ID != "" {
+				// Rule ID might be in Name position, keep it as ID
+			}
+
+			// Extract rule fields from positions 5-8 (or more with full output)
+			if len(row) > 8 {
+				jsonRow.RuleFields = &JSONRuleFields{
+					Direction: getValueOrDefault(row[5], ""),
+					Protocol:  getValueOrDefault(row[6], ""),
+					PortRange: getValueOrDefault(row[7], ""),
+					RemoteIP:  getValueOrDefault(row[8], ""),
+				}
+
+				// Full output includes ethertype and remote_group
+				if len(row) > 10 {
+					jsonRow.RuleFields.Ethertype = getValueOrDefault(row[9], "")
+					jsonRow.RuleFields.RemoteGroup = getValueOrDefault(row[10], "")
+				}
+			}
+		}
+
+		// Set type for servers if not already set
+		if jsonRow.Type == "" && jsonRow.IPAddress != "" {
+			jsonRow.Type = "server"
+		}
+
+		// Set type for security groups
+		if jsonRow.Type == "" && resourceTypeIndex < 0 && jsonRow.ID != "" && jsonRow.Name != "" {
+			// This is likely a server row if it has IP address, otherwise could be security group
+			if jsonRow.IPAddress != "" {
+				jsonRow.Type = "server"
 			}
 		}
 
@@ -171,6 +232,27 @@ func (f *JSONFormatter) Format(data *OutputData) error {
 	}
 
 	return nil
+}
+
+// getIndex returns the index for a header name, or -1 if not found
+func getIndex(headerIndices map[string]int, name string) int {
+	if idx, ok := headerIndices[name]; ok {
+		return idx
+	}
+	return -1
+}
+
+// getFieldByHeader gets a field value by trying multiple possible header names
+func getFieldByHeader(row []string, headerIndices map[string]int, headerNames ...string) string {
+	for _, name := range headerNames {
+		if idx, ok := headerIndices[name]; ok && idx < len(row) {
+			val := row[idx]
+			if val != "" && val != "n/a" {
+				return val
+			}
+		}
+	}
+	return ""
 }
 
 // getValueOrDefault returns the value if not empty, otherwise returns the default value
@@ -195,7 +277,7 @@ func (f *JSONFormatter) FormatSecurityGroupRules(groupName, groupID string, rule
 	}{
 		GroupName: groupName,
 		GroupID:   groupID,
-		Headers:   []string{"Direction", "Protocol", "Port Range", "CIDR"},
+		Headers:   []string{"direction", "protocol", "port_range", "remote_ip"},
 		Rules:     rules,
 	}
 
