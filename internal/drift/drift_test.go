@@ -60,6 +60,204 @@ func TestParseTerraformState(t *testing.T) {
 	}
 }
 
+func TestParseTerraformStateWithChildModules(t *testing.T) {
+	// Test that resources in child modules are extracted correctly
+	stateJSON := `{
+		"format_version": "1.0",
+		"terraform_version": "1.1.7",
+		"values": {
+			"root_module": {
+				"child_modules": [{
+					"address": "module.mymodule",
+					"resources": [{
+						"address": "module.mymodule.openstack_compute_instance_v2.test",
+						"mode": "managed",
+						"type": "openstack_compute_instance_v2",
+						"name": "test",
+						"values": {
+							"id": "test-server-id-123",
+							"name": "test-server",
+							"access_ip_v4": "10.0.0.1"
+						}
+					}, {
+						"address": "module.mymodule.openstack_networking_secgroup_v2.mysg",
+						"mode": "managed",
+						"type": "openstack_networking_secgroup_v2",
+						"name": "mysg",
+						"values": {
+							"id": "sg-id-456",
+							"name": "my-security-group"
+						}
+					}]
+				}]
+			}
+		}
+	}`
+
+	state, err := ParseTerraformState(strings.NewReader(stateJSON))
+	if err != nil {
+		t.Fatalf("Failed to parse Terraform state: %v", err)
+	}
+
+	resources := ExtractResourcesFromTerraform(state, "test-project")
+	if len(resources) != 2 {
+		t.Fatalf("Expected 2 resources from child module, got %d", len(resources))
+	}
+
+	// Check server
+	var foundServer, foundSG bool
+	for _, res := range resources {
+		if res.Type == ResourceTypeServer && res.ID == "test-server-id-123" {
+			foundServer = true
+			if res.Name != "test-server" {
+				t.Errorf("Expected server name test-server, got %s", res.Name)
+			}
+		}
+		if res.Type == ResourceTypeSecurityGroup && res.ID == "sg-id-456" {
+			foundSG = true
+			if res.Name != "my-security-group" {
+				t.Errorf("Expected SG name my-security-group, got %s", res.Name)
+			}
+		}
+	}
+
+	if !foundServer {
+		t.Error("Expected to find server from child module")
+	}
+	if !foundSG {
+		t.Error("Expected to find security group from child module")
+	}
+}
+
+func TestParseTerraformStateWithMixedResources(t *testing.T) {
+	// Test that resources in both root module and child modules are extracted
+	stateJSON := `{
+		"format_version": "1.0",
+		"terraform_version": "1.1.7",
+		"values": {
+			"root_module": {
+				"resources": [{
+					"address": "openstack_compute_instance_v2.direct",
+					"mode": "managed",
+					"type": "openstack_compute_instance_v2",
+					"name": "direct",
+					"values": {
+						"id": "direct-server-id",
+						"name": "direct-server"
+					}
+				}],
+				"child_modules": [{
+					"address": "module.mymodule",
+					"resources": [{
+						"address": "module.mymodule.openstack_compute_instance_v2.module",
+						"mode": "managed",
+						"type": "openstack_compute_instance_v2",
+						"name": "module",
+						"values": {
+							"id": "module-server-id",
+							"name": "module-server"
+						}
+					}]
+				}]
+			}
+		}
+	}`
+
+	state, err := ParseTerraformState(strings.NewReader(stateJSON))
+	if err != nil {
+		t.Fatalf("Failed to parse Terraform state: %v", err)
+	}
+
+	resources := ExtractResourcesFromTerraform(state, "test-project")
+	if len(resources) != 2 {
+		t.Fatalf("Expected 2 resources (1 direct + 1 from module), got %d", len(resources))
+	}
+
+	// Check both servers are found
+	var foundDirect, foundModule bool
+	for _, res := range resources {
+		if res.ID == "direct-server-id" {
+			foundDirect = true
+		}
+		if res.ID == "module-server-id" {
+			foundModule = true
+		}
+	}
+
+	if !foundDirect {
+		t.Error("Expected to find direct server from root_module.resources")
+	}
+	if !foundModule {
+		t.Error("Expected to find module server from child_modules")
+	}
+}
+
+func TestParseTerraformStateWithNestedModules(t *testing.T) {
+	// Test that resources in nested child modules are extracted
+	stateJSON := `{
+		"format_version": "1.0",
+		"terraform_version": "1.1.7",
+		"values": {
+			"root_module": {
+				"child_modules": [{
+					"address": "module.parent",
+					"resources": [{
+						"address": "module.parent.openstack_compute_instance_v2.parent",
+						"mode": "managed",
+						"type": "openstack_compute_instance_v2",
+						"name": "parent",
+						"values": {
+							"id": "parent-server-id",
+							"name": "parent-server"
+						}
+					}],
+					"child_modules": [{
+						"address": "module.parent.module.child",
+						"resources": [{
+							"address": "module.parent.module.child.openstack_compute_instance_v2.nested",
+							"mode": "managed",
+							"type": "openstack_compute_instance_v2",
+							"name": "nested",
+							"values": {
+								"id": "nested-server-id",
+								"name": "nested-server"
+							}
+						}]
+					}]
+				}]
+			}
+		}
+	}`
+
+	state, err := ParseTerraformState(strings.NewReader(stateJSON))
+	if err != nil {
+		t.Fatalf("Failed to parse Terraform state: %v", err)
+	}
+
+	resources := ExtractResourcesFromTerraform(state, "test-project")
+	if len(resources) != 2 {
+		t.Fatalf("Expected 2 resources from nested modules, got %d", len(resources))
+	}
+
+	// Check both servers are found
+	var foundParent, foundNested bool
+	for _, res := range resources {
+		if res.ID == "parent-server-id" {
+			foundParent = true
+		}
+		if res.ID == "nested-server-id" {
+			foundNested = true
+		}
+	}
+
+	if !foundParent {
+		t.Error("Expected to find server from parent module")
+	}
+	if !foundNested {
+		t.Error("Expected to find server from nested module")
+	}
+}
+
 func TestParseOscOutput(t *testing.T) {
 	// Sample osc JSON output (new normalized format with top-level fields)
 	oscJSON := `{

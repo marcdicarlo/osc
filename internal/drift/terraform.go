@@ -21,9 +21,17 @@ type TerraformValues struct {
 	RootModule *TerraformRootModule `json:"root_module"`
 }
 
-// TerraformRootModule contains resources
+// TerraformRootModule contains resources and child modules
 type TerraformRootModule struct {
-	Resources []TerraformResource `json:"resources"`
+	Resources    []TerraformResource    `json:"resources"`
+	ChildModules []TerraformChildModule `json:"child_modules,omitempty"`
+}
+
+// TerraformChildModule represents a child module in Terraform state
+type TerraformChildModule struct {
+	Address      string                 `json:"address"`
+	Resources    []TerraformResource    `json:"resources"`
+	ChildModules []TerraformChildModule `json:"child_modules,omitempty"`
 }
 
 // TerraformResource represents a single resource in Terraform state
@@ -73,7 +81,30 @@ func ExtractResourcesFromTerraform(state *TerraformState, projectName string) []
 
 	var resources []Resource
 
-	for _, tfRes := range state.Values.RootModule.Resources {
+	// Case 1: Process direct resources in root module (resources NOT in a module)
+	resources = append(resources, extractResourcesFromModule(state.Values.RootModule.Resources, projectName)...)
+
+	// Case 2: Recursively process resources in child modules
+	resources = append(resources, extractResourcesFromChildModules(state.Values.RootModule.ChildModules, projectName)...)
+
+	return resources
+}
+
+// extractResourcesFromChildModules recursively extracts resources from child modules
+func extractResourcesFromChildModules(modules []TerraformChildModule, projectName string) []Resource {
+	var resources []Resource
+	for _, module := range modules {
+		resources = append(resources, extractResourcesFromModule(module.Resources, projectName)...)
+		// Recursively process nested child modules
+		resources = append(resources, extractResourcesFromChildModules(module.ChildModules, projectName)...)
+	}
+	return resources
+}
+
+// extractResourcesFromModule extracts resources from a slice of TerraformResource
+func extractResourcesFromModule(tfResources []TerraformResource, projectName string) []Resource {
+	var resources []Resource
+	for _, tfRes := range tfResources {
 		switch tfRes.Type {
 		case TerraformTypeComputeInstance:
 			if res := extractServer(tfRes, projectName); res != nil {
@@ -89,7 +120,6 @@ func ExtractResourcesFromTerraform(state *TerraformState, projectName string) []
 			}
 		}
 	}
-
 	return resources
 }
 
