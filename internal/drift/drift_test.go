@@ -61,7 +61,7 @@ func TestParseTerraformState(t *testing.T) {
 }
 
 func TestParseOscOutput(t *testing.T) {
-	// Sample osc JSON output
+	// Sample osc JSON output (new normalized format with top-level fields)
 	oscJSON := `{
 		"headers": ["name", "id", "project_name", "ip_address"],
 		"data": [
@@ -83,6 +83,101 @@ func TestParseOscOutput(t *testing.T) {
 
 	if len(output.Data) != 1 {
 		t.Fatalf("Expected 1 data row, got %d", len(output.Data))
+	}
+
+	// Verify the top-level fields are parsed correctly
+	row := output.Data[0]
+	if row.ID != "server-id-123" {
+		t.Errorf("Expected ID server-id-123, got %s", row.ID)
+	}
+	if row.Name != "test-server" {
+		t.Errorf("Expected name test-server, got %s", row.Name)
+	}
+	if row.ProjectName != "test-project" {
+		t.Errorf("Expected project_name test-project, got %s", row.ProjectName)
+	}
+	if row.IPAddress != "10.0.0.1" {
+		t.Errorf("Expected ip_address 10.0.0.1, got %s", row.IPAddress)
+	}
+}
+
+func TestExtractResourcesFromNewJsonFormat(t *testing.T) {
+	// Test extraction from the new normalized JSON format
+	oscJSON := `{
+		"headers": ["name", "id", "project_name", "ip_address"],
+		"data": [
+			{
+				"type": "server",
+				"id": "server-id-123",
+				"name": "test-server",
+				"project_name": "test-project",
+				"ip_address": "10.0.0.1",
+				"security_groups": ["default", "web-servers"]
+			},
+			{
+				"type": "security-group",
+				"id": "sg-id-456",
+				"name": "web-servers",
+				"project_name": "test-project"
+			},
+			{
+				"type": "security-group-rule",
+				"id": "rule-id-789",
+				"parent_id": "sg-id-456",
+				"parent_name": "web-servers",
+				"project_name": "test-project"
+			}
+		]
+	}`
+
+	output, err := ParseOscOutput(strings.NewReader(oscJSON))
+	if err != nil {
+		t.Fatalf("Failed to parse osc output: %v", err)
+	}
+
+	resources := ExtractResourcesFromOsc(output, "test-project")
+
+	if len(resources) != 3 {
+		t.Fatalf("Expected 3 resources, got %d", len(resources))
+	}
+
+	// Check server
+	server := resources[0]
+	if server.Type != ResourceTypeServer {
+		t.Errorf("Expected server type, got %s", server.Type)
+	}
+	if server.ID != "server-id-123" {
+		t.Errorf("Expected server ID server-id-123, got %s", server.ID)
+	}
+	if server.Name != "test-server" {
+		t.Errorf("Expected server name test-server, got %s", server.Name)
+	}
+	if len(server.SecurityGroups) != 2 {
+		t.Errorf("Expected 2 security groups, got %d", len(server.SecurityGroups))
+	}
+
+	// Check security group
+	sg := resources[1]
+	if sg.Type != ResourceTypeSecurityGroup {
+		t.Errorf("Expected security-group type, got %s", sg.Type)
+	}
+	if sg.ID != "sg-id-456" {
+		t.Errorf("Expected sg ID sg-id-456, got %s", sg.ID)
+	}
+	if sg.Name != "web-servers" {
+		t.Errorf("Expected sg name web-servers, got %s", sg.Name)
+	}
+
+	// Check security group rule
+	rule := resources[2]
+	if rule.Type != ResourceTypeSecurityGroupRule {
+		t.Errorf("Expected security-group-rule type, got %s", rule.Type)
+	}
+	if rule.ID != "rule-id-789" {
+		t.Errorf("Expected rule ID rule-id-789, got %s", rule.ID)
+	}
+	if rule.ParentID != "sg-id-456" {
+		t.Errorf("Expected rule ParentID sg-id-456, got %s", rule.ParentID)
 	}
 }
 

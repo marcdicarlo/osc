@@ -29,11 +29,26 @@ type OscFiltering struct {
 }
 
 // OscRow represents a row of data from osc output
+// Supports both the new normalized format (top-level fields) and legacy format (Fields map)
 type OscRow struct {
-	Type           string            `json:"type,omitempty"`
-	Fields         map[string]string `json:"fields"`
-	SecurityGroups []string          `json:"security_groups,omitempty"`
-	RuleFields     *OscRuleFields    `json:"rule_fields,omitempty"`
+	// New top-level fields (matching output/json.go JSONRow)
+	Type        string `json:"type,omitempty"`
+	ID          string `json:"id,omitempty"`
+	Name        string `json:"name,omitempty"`
+	ProjectName string `json:"project_name,omitempty"`
+	ProjectID   string `json:"project_id,omitempty"`
+	IPAddress   string `json:"ip_address,omitempty"`
+
+	// Server-specific
+	SecurityGroups []string `json:"security_groups,omitempty"`
+
+	// Rule-specific
+	ParentID   string         `json:"parent_id,omitempty"`
+	ParentName string         `json:"parent_name,omitempty"`
+	RuleFields *OscRuleFields `json:"rule_fields,omitempty"`
+
+	// Legacy (for backward compatibility with old JSON format)
+	Fields map[string]string `json:"fields,omitempty"`
 }
 
 // OscRuleFields contains security group rule specific fields
@@ -96,9 +111,16 @@ func ExtractResourcesFromOsc(output *OscOutput, projectName string) []Resource {
 
 // extractOscServer extracts a server resource from osc row
 func extractOscServer(row OscRow, projectName string) *Resource {
-	// Try multiple field name variations (old format and new format)
-	id := getOscField(row.Fields, "Server ID", "server_id", "id")
-	name := getOscField(row.Fields, "Server Name", "server_name", "name")
+	// Use top-level fields first (new format), fall back to Fields map (legacy format)
+	id := row.ID
+	if id == "" {
+		id = getOscField(row.Fields, "Server ID", "server_id", "id")
+	}
+
+	name := row.Name
+	if name == "" {
+		name = getOscField(row.Fields, "Server Name", "server_name", "name")
+	}
 
 	if id == "" {
 		return nil
@@ -107,11 +129,19 @@ func extractOscServer(row OscRow, projectName string) *Resource {
 	// Use projectName from parameter, or try to get from row
 	project := projectName
 	if project == "" {
-		project = getOscField(row.Fields, "Project Name", "project_name", "project")
+		project = row.ProjectName
+		if project == "" {
+			project = getOscField(row.Fields, "Project Name", "project_name", "project")
+		}
+	}
+
+	ipAddr := row.IPAddress
+	if ipAddr == "" {
+		ipAddr = getOscField(row.Fields, "IPv4 Address", "ipv4_address", "ip_address")
 	}
 
 	props := make(map[string]any)
-	props["ip_address"] = getOscField(row.Fields, "IPv4 Address", "ipv4_address", "ip_address")
+	props["ip_address"] = ipAddr
 
 	return &Resource{
 		ID:             id,
@@ -125,8 +155,16 @@ func extractOscServer(row OscRow, projectName string) *Resource {
 
 // extractOscSecurityGroup extracts a security group resource from osc row
 func extractOscSecurityGroup(row OscRow, projectName string) *Resource {
-	id := getOscField(row.Fields, "ID", "id")
-	name := getOscField(row.Fields, "Name", "name")
+	// Use top-level fields first (new format), fall back to Fields map (legacy format)
+	id := row.ID
+	if id == "" {
+		id = getOscField(row.Fields, "ID", "id")
+	}
+
+	name := row.Name
+	if name == "" {
+		name = getOscField(row.Fields, "Name", "name")
+	}
 
 	if id == "" {
 		return nil
@@ -134,7 +172,10 @@ func extractOscSecurityGroup(row OscRow, projectName string) *Resource {
 
 	project := projectName
 	if project == "" {
-		project = getOscField(row.Fields, "Project Name", "project_name", "project")
+		project = row.ProjectName
+		if project == "" {
+			project = getOscField(row.Fields, "Project Name", "project_name", "project")
+		}
 	}
 
 	return &Resource{
@@ -147,9 +188,21 @@ func extractOscSecurityGroup(row OscRow, projectName string) *Resource {
 
 // extractOscSecurityGroupRule extracts a security group rule resource from osc row
 func extractOscSecurityGroupRule(row OscRow, projectName string) *Resource {
-	id := getOscField(row.Fields, "ID", "id")
-	parentID := getOscField(row.Fields, "Parent ID", "parent_id")
-	parentName := getOscField(row.Fields, "Parent Name", "parent_name", "Name")
+	// Use top-level fields first (new format), fall back to Fields map (legacy format)
+	id := row.ID
+	if id == "" {
+		id = getOscField(row.Fields, "ID", "id")
+	}
+
+	parentID := row.ParentID
+	if parentID == "" {
+		parentID = getOscField(row.Fields, "Parent ID", "parent_id")
+	}
+
+	parentName := row.ParentName
+	if parentName == "" {
+		parentName = getOscField(row.Fields, "Parent Name", "parent_name", "Name")
+	}
 
 	if id == "" {
 		return nil
@@ -157,7 +210,10 @@ func extractOscSecurityGroupRule(row OscRow, projectName string) *Resource {
 
 	project := projectName
 	if project == "" {
-		project = getOscField(row.Fields, "Project Name", "project_name", "project")
+		project = row.ProjectName
+		if project == "" {
+			project = getOscField(row.Fields, "Project Name", "project_name", "project")
+		}
 	}
 
 	props := make(map[string]any)
