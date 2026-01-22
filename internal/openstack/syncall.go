@@ -570,7 +570,8 @@ func deleteProjectResources(tx *sql.Tx, cfg *config.Config, projectID string) er
 // fetchServersByProject fetches servers for a single project
 func fetchServersByProject(computeClient *gophercloud.ServiceClient, projectID string) ([]servers.Server, error) {
 	allPages, err := servers.List(computeClient, servers.ListOpts{
-		TenantID: projectID,
+		TenantID:   projectID,
+		AllTenants: true,
 	}).AllPages()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list servers: %w", err)
@@ -604,7 +605,8 @@ func fetchSecurityGroupsByProject(networkClient *gophercloud.ServiceClient, proj
 // fetchVolumesByProject fetches volumes for a single project
 func fetchVolumesByProject(blockStorageClient *gophercloud.ServiceClient, projectID string) ([]volumes.Volume, error) {
 	allPages, err := volumes.List(blockStorageClient, volumes.ListOpts{
-		TenantID: projectID,
+		TenantID:   projectID,
+		AllTenants: true,
 	}).AllPages()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list volumes: %w", err)
