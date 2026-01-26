@@ -130,8 +130,8 @@ func generateServersJSON(database *sql.DB, cfg *config.Config, projectName, outp
 	defer cancel()
 
 	// Query with security groups (always include for drift detection)
-	query := `SELECT s.server_name, s.server_id, p.project_name, COALESCE(s.ipv4_addr, ''),
-	         COALESCE(GROUP_CONCAT(sg.secgrp_name, ', '), '')
+	query := `SELECT s.server_name, s.server_id, s.project_id, p.project_name, COALESCE(s.ipv4_addr, ''),
+	         COALESCE(GROUP_CONCAT(sg.secgrp_name, ', '), ''), 'server' as resource_type
 	FROM ` + cfg.Tables.Servers + ` s
 	JOIN ` + cfg.Tables.Projects + ` p USING (project_id)
 	LEFT JOIN ` + cfg.Tables.ServerSecGrps + ` ssg ON s.server_id = ssg.server_id
@@ -147,11 +147,11 @@ func generateServersJSON(database *sql.DB, cfg *config.Config, projectName, outp
 
 	var data [][]string
 	for rows.Next() {
-		var name, id, pname, ipv4, secgrps string
-		if err := rows.Scan(&name, &id, &pname, &ipv4, &secgrps); err != nil {
+		var name, id, projectID, pname, ipv4, secgrps, resourceType string
+		if err := rows.Scan(&name, &id, &projectID, &pname, &ipv4, &secgrps, &resourceType); err != nil {
 			return err
 		}
-		data = append(data, []string{name, id, pname, ipv4, secgrps})
+		data = append(data, []string{name, id, projectID, pname, ipv4, secgrps, resourceType})
 	}
 
 	if err := rows.Err(); err != nil {
@@ -160,11 +160,11 @@ func generateServersJSON(database *sql.DB, cfg *config.Config, projectName, outp
 
 	// Filter to only this project
 	pf := filter.New(projectName, cfg)
-	filteredData, matchedProjectsMap := pf.MatchProjects(data, 2)
+	filteredData, matchedProjectsMap := pf.MatchProjects(data, 3) // project_name is at index 3
 
 	// If no data matches this project, create empty output
 	if len(filteredData) == 0 {
-		return writeEmptyJSON(outputPath, []string{"Server Name", "Server ID", "Project Name", "IPv4 Address", "Security Groups"})
+		return writeEmptyJSON(outputPath, []string{"name", "id", "project_id", "project_name", "ip_address", "security_groups", "type"})
 	}
 
 	// Write to file
@@ -174,7 +174,7 @@ func generateServersJSON(database *sql.DB, cfg *config.Config, projectName, outp
 		return err
 	}
 
-	headers := []string{"Server Name", "Server ID", "Project Name", "IPv4 Address", "Security Groups"}
+	headers := []string{"name", "id", "project_id", "project_name", "ip_address", "security_groups", "type"}
 	outputData := output.NewOutputData(headers, filteredData)
 
 	var matchedProjects []string
