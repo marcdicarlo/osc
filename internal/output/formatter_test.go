@@ -120,24 +120,19 @@ func TestCSVFormatter(t *testing.T) {
 	output := buf.String()
 	lines := strings.Split(strings.TrimSpace(output), "\n")
 
-	// Check filtering info comment
-	if !strings.Contains(lines[0], "Found 1 matching projects") {
-		t.Error("Missing filtering info in CSV output")
-	}
-
 	// Check headers
-	headers := strings.Split(lines[1], ",")
+	headers := strings.Split(lines[0], ",")
 	if len(headers) != 9 {
 		t.Errorf("Expected 9 headers, got %d", len(headers))
 	}
 
 	// Check data rows
-	if len(lines) != 4 { // Comment + headers + 2 data rows
-		t.Errorf("Expected 4 lines, got %d", len(lines))
+	if len(lines) != 3 { // headers + 2 data rows
+		t.Errorf("Expected 3 lines, got %d", len(lines))
 	}
 
 	// Check security group rule data
-	ruleFields := strings.Split(lines[3], ",")
+	ruleFields := strings.Split(lines[2], ",")
 	if ruleFields[5] != "ingress" || ruleFields[6] != "tcp" || ruleFields[7] != "22" || ruleFields[8] != "0.0.0.0/0" {
 		t.Error("Security group rule fields not formatted correctly")
 	}
