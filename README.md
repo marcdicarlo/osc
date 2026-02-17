@@ -119,6 +119,7 @@ osc list secgrps -p "prod" -r -o json
 The tool supports three output formats, controlled by the `-o` or `--output` flag:
 
 1. Table format (default):
+
    ```bash
    # Default table output
    osc list servers
@@ -128,13 +129,15 @@ The tool supports three output formats, controlled by the `-o` or `--output` fla
    ```
 
    Example table output:
-   ```
+
+   ```bash
    Name        ID        Project ID   Project Name   Resource Type
    default     sg-123    proj-123    prod-app1      security-group
    ssh-rule    sg-123    proj-123    prod-app1      security-group-rule
    ```
 
 2. JSON format:
+
    ```bash
    # Output in JSON format
    osc list servers -o json
@@ -142,8 +145,9 @@ The tool supports three output formats, controlled by the `-o` or `--output` fla
    # Security groups with rules in JSON
    osc list secgrps -r -o json
    ```
-   
+  
    JSON output includes metadata and structured fields:
+
    ```json
    {
      "metadata": {
@@ -185,6 +189,7 @@ The tool supports three output formats, controlled by the `-o` or `--output` fla
    ```
 
 3. CSV format:
+
    ```bash
    # Output in CSV format
    osc list servers -o csv
@@ -192,8 +197,9 @@ The tool supports three output formats, controlled by the `-o` or `--output` fla
    # Security groups with rules in CSV
    osc list secgrps -r -o csv
    ```
-   
+  
    CSV output includes headers and is RFC 4180 compliant:
+
    ```csv
    Name,ID,Project ID,Project Name,Resource Type,Direction,Protocol,Port Range,Remote IP
    default,sg-123,proj-123,prod-app1,security-group,,,,
@@ -205,12 +211,14 @@ The tool supports three output formats, controlled by the `-o` or `--output` fla
 The servers command (`osc list servers`) supports displaying security groups attached to each server:
 
 1. Basic listing:
+
    ```bash
    # List servers without security groups
    osc list servers
    ```
 
 2. Include security group names:
+
    ```bash
    # List servers with security group names only
    osc list servers --rules
@@ -218,12 +226,14 @@ The servers command (`osc list servers`) supports displaying security groups att
    ```
 
    Example output:
-   ```
+
+   ```bash
    SERVER NAME     | SERVER ID | PROJECT NAME     | IPV4 ADDRESS  | SECURITY GROUPS
    sa1x-server-p1  | srv-101   | hc_alpha_project | 192.168.1.101 | default, web-servers
    ```
 
 3. Include security group IDs and names:
+
    ```bash
    # Full output with IDs (useful for scripting)
    osc list servers --full
@@ -231,17 +241,20 @@ The servers command (`osc list servers`) supports displaying security groups att
    ```
 
    Example output:
-   ```
+
+   ```bash
    SERVER NAME     | SERVER ID | PROJECT NAME     | IPV4 ADDRESS  | SECURITY GROUPS
    sa1x-server-p1  | srv-101   | hc_alpha_project | 192.168.1.101 | sg-1 (default), sg-2 (web-servers)
    ```
 
 4. JSON output with security groups:
+
    ```bash
    osc list servers --rules -o json
    ```
 
    Security groups are output as a list:
+
    ```json
    {
      "fields": {
@@ -259,18 +272,21 @@ The servers command (`osc list servers`) supports displaying security groups att
 The security groups command (`osc list secgrps`) provides a unified view of security groups and their rules:
 
 1. Basic listing:
+
    ```bash
    # List only security groups
    osc list secgrps
    ```
 
 2. Include rules:
+
    ```bash
    # List groups with their rules
    osc list secgrps -r
    ```
 
 3. Show full rule details (includes ethertype and remote security groups):
+
    ```bash
    # Full details including ethertype and remote group IDs
    osc list secgrps -r --full
@@ -294,7 +310,8 @@ The security groups command (`osc list secgrps`) provides a unified view of secu
      - Remote Group (source security group ID with resolved name)
 
    Example full output:
-   ```
+
+   ```bash
    rule-9  | sg-4 | ... | ingress | tcp | 3306 | any | IPv4 | sg-2 (web-servers)
    ```
 
@@ -323,6 +340,7 @@ osc show server my-server-name -o csv
 ```
 
 Server details include:
+
 - Server ID, name, and project
 - Status (ACTIVE, SHUTOFF, etc.)
 - IPv4 address
@@ -333,7 +351,8 @@ Server details include:
 - Security groups
 
 Example table output:
-```
+
+```bash
 Server: my-server-name
   ID:      srv-101
   Project: hc_alpha_project (proj-alpha)
@@ -371,12 +390,14 @@ osc show secgrp web-servers -o csv
 ```
 
 Security group details include:
+
 - Security group ID, name, and project
 - All rules (direction, protocol, ports, remote IP/group)
 - Servers using this security group
 
 Example table output:
-```
+
+```bash
 Security Group: web-servers
   ID:      sg-2
   Project: hc_alpha_project (proj-alpha)
@@ -396,6 +417,7 @@ Security Group: web-servers
 The tool provides two ways to filter resources by project:
 
 1. Command-line filtering (temporary):
+
    ```bash
    # Show servers in projects containing "prod"
    osc list servers -p "prod"
@@ -408,6 +430,7 @@ The tool provides two ways to filter resources by project:
    ```
 
 2. Configuration-based filtering (permanent):
+
    ```yaml
    # In config.yaml:
    project_scope: "prod-app1"    # Show only resources from this project
@@ -479,6 +502,7 @@ go test ./...
 ```
 
 The test suite includes:
+
 - Unit tests for all formatters
 - Integration tests for commands
 - Project filtering tests
