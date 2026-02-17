@@ -40,7 +40,7 @@ A command-line tool that caches OpenStack resource data locally for improved que
 3. Build the project:
 
    ```bash
-   go build
+   make build
    ```
 
 ## Configuration
@@ -486,14 +486,23 @@ The test suite includes:
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+Contributions are welcome! Following this outline helps keep work fast and reviews predictable:
 
-When contributing, please ensure:
-- All tests pass
-- New features include tests
-- Documentation is updated
-- Code follows existing style
+1. **Start with an issue.** Open a GitHub issue describing bugs, feature ideas, or docs improvements so we can agree on scope before you code. Link relevant logs/output and tag `bug` or `feature` appropriately.
+2. **Branch from `main`.** Create a branch named `username/XX-brief-description` (replace `XX` with the issue or ticket number). Rebase frequently so your work keeps up with `main`.
+3. **Build the change.** Write tests (unit, integration, regression) and ensure `go test ./...` passes locally. Run `go fmt` on files you touched and lint any Go files if applicable.
+4. **Document the work.** Update `README.md`, config snippets, or other docs to describe new commands, configuration options, or behaviours. Mention when migrations/backwards compatibility changes are required.
+5. **Prepare the PR.** Push the branch, reference the issue in the description, explain testing steps, and summarize the change. Use small, focused commits with clear messages.
+
+Before opening a pull request, double-check that:
+
+- The new behaviour is covered by automated tests or a justification is provided.
+- Any configuration or schema changes have been documented in this README or a dedicated migration guide.
+- The code follows the existing style (align tabs/spaces, idiomatic Go, no commented-out code).
+- Sensitive or credential data is not stored in the repo (use env vars or config files as needed).
+
+After your PR is open, respond to review feedback, squash or fixup commits if requested, and confirm CI/test jobs pass if applicable.
+
+## License
+
+OpenStack Cache is licensed under the Apache License, Version 2.0. See `LICENSE` for the full text.
