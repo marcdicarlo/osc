@@ -5,6 +5,9 @@ tables:
   servers_table:  "os_servers"
   secgrps_table: "os_security_groups"
   secgrp_rules_table: "os_security_group_rules"
+  volumes_table: "os_volumes"
+  server_secgrps_table: "os_server_secgrps"
+  server_volumes_table: "os_server_volumes"
 openstack:
   compute_service:  "compute"
   identity_service: "identity"
