@@ -8,3 +8,4 @@ osc
 hc_test_cluster_project/*
 sample-data.json
 .cache/
+AGENTS.md
