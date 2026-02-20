@@ -7,3 +7,4 @@ osc
 .claude
 hc_test_cluster_project/*
 sample-data.json
+.cache/

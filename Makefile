@@ -7,6 +7,9 @@ BUILD_DATE := $(shell date -u '+%Y-%m-%d %H:%M:%S UTC')
 LDFLAGS := -X 'github.com/marcdicarlo/osc/internal/version.Version=$(VERSION)' \
            -X 'github.com/marcdicarlo/osc/internal/version.Commit=$(COMMIT)' \
            -X 'github.com/marcdicarlo/osc/internal/version.Date=$(BUILD_DATE)'
+LOCAL_GO_CACHE ?= $(CURDIR)/.cache/go-build
+LOCAL_GO_MODCACHE ?= $(CURDIR)/.cache/go-mod
+LOCAL_GO_ENV := GOCACHE=$(LOCAL_GO_CACHE) GOMODCACHE=$(LOCAL_GO_MODCACHE)
 
 # Default target
 all: build
@@ -14,7 +17,8 @@ all: build
 # Build the binary with version information injected
 build:
 	@echo "Building osc $(VERSION) (commit: $(COMMIT), built: $(BUILD_DATE))"
-	@go build -ldflags "$(LDFLAGS)" -o osc
+	@mkdir -p $(LOCAL_GO_CACHE) $(LOCAL_GO_MODCACHE)
+	@$(LOCAL_GO_ENV) go build -ldflags "$(LDFLAGS)" -o osc
 	@echo "Build successful!"
 	@./osc version
 
@@ -27,7 +31,8 @@ clean:
 # Run tests
 test:
 	@echo "Running tests..."
-	@go test ./...
+	@mkdir -p $(LOCAL_GO_CACHE) $(LOCAL_GO_MODCACHE)
+	@$(LOCAL_GO_ENV) go test ./...
 
 # Bump major version (e.g., 1.0.0 -> 2.0.0)
 version-bump-major:

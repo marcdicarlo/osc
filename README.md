@@ -43,6 +43,8 @@ A command-line tool that caches OpenStack resource data locally for improved que
    make build
    ```
 
+   `make build` and `make test` use repository-local Go caches (`.cache/go-build` and `.cache/go-mod`) by default. This avoids permission issues in restricted or sandboxed environments while still allowing overrides via environment or make variable assignments.
+
 ## Configuration
 
 Create a `config.yaml` file in the project directory:
