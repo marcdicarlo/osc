@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/marcdicarlo/osc/internal/logx"
 	"github.com/spf13/cobra"
 )
 
@@ -14,6 +15,7 @@ var (
 	// Used by multiple commands
 	projectFilter string
 	outputFormat  string
+	debugMode     bool
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -33,6 +35,9 @@ Use "osc <command> --help" for more information about a given command.`,
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
 	// Run: func(cmd *cobra.Command, args []string) { },
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		logx.SetDebug(debugMode)
+	},
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -53,6 +58,7 @@ func init() {
 
 	// Add global output format flag
 	rootCmd.PersistentFlags().StringVarP(&outputFormat, "output", "o", "table", "Output format: table, json, or csv")
+	rootCmd.PersistentFlags().BoolVar(&debugMode, "debug", false, "Enable detailed debug logs for diagnostics")
 
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.

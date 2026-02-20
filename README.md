@@ -84,6 +84,26 @@ osc sync project prod
 # If one project matches, you'll see a confirmation and the sync will proceed
 ```
 
+### Debugging Sync Failures
+
+Use the global `--debug` flag to emit detailed sync diagnostics:
+
+```bash
+# Debug full sync
+osc --debug sync all
+
+# Debug a single project sync
+osc --debug sync project prod
+```
+
+When debug mode is enabled, `osc` logs:
+
+- Step start/finish markers with durations for major sync phases
+- Periodic "still waiting" watchdog logs around potentially long API calls
+- Redacted HTTP request/response traces (method, URL, headers, status, latency, small body previews)
+
+Sensitive values are redacted (for example `Authorization`, `X-Auth-Token`, password/token-like fields in URLs and payloads). Debug output is intentionally verbose and primarily intended for troubleshooting.
+
 ### Basic Commands
 
 ```bash
