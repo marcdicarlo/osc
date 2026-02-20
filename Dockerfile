@@ -19,7 +19,7 @@ FROM alpine:3.21
 WORKDIR /app
 
 # Minimal runtime dependencies.
-RUN apk add --no-cache ca-certificates libgcc sqlite3
+RUN apk add --no-cache ca-certificates libgcc sqlite
 
 COPY --from=builder /out/osc /usr/local/bin/osc
 
