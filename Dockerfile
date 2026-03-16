@@ -19,11 +19,17 @@ FROM alpine:3.21
 WORKDIR /app
 
 # Minimal runtime dependencies.
-RUN apk add --no-cache ca-certificates libgcc sqlite
+RUN apk add --no-cache ca-certificates git libgcc sqlite
 
 COPY --from=builder /out/osc /usr/local/bin/osc
 
 # App expects config.yaml in the working directory.
 COPY sample.config.yaml /etc/osc/config.yaml
+
+RUN mkdir -p ~/.config/openstack/
+
+RUN mkdir -p /etc/openstack
+
+COPY terraform /usr/local/bin/terraform
 
 ENTRYPOINT ["/usr/local/bin/osc"]

@@ -1,5 +1,5 @@
-db_file: "cachedb.db"
-db_timeout: 5000000000    # 5s in nanoseconds
+db_file: "/app/cachedb.db"
+db_timeout: 5000000000000
 tables:
   projects_table: "os_project_names"
   servers_table:  "os_servers"
